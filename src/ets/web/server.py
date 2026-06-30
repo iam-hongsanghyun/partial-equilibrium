@@ -5,7 +5,7 @@ from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from ..config import FRONTEND_DIST_DIR
+from ..config import DOCS_DIR, FRONTEND_DIST_DIR
 from .handlers import (
     ASSET_CONTENT_TYPES,
     _build_dashboard_payload,
@@ -150,6 +150,14 @@ def app(environ, start_response):
 
     if path.startswith("/api/"):
         return _json_response(start_response, {"error": "Not found"}, HTTPStatus.NOT_FOUND)
+
+    # Serve the documentation tree (tutorials HTML + reference markdown) so users
+    # can study it from the deployed app. /docs/<path> → repo docs/<path>.
+    if path.startswith("/docs/"):
+        doc = _safe_path(DOCS_DIR, path[len("/docs/"):])
+        if doc is None:
+            return _json_response(start_response, {"error": "Forbidden"}, HTTPStatus.FORBIDDEN)
+        return _file_response(start_response, doc)
 
     safe = _safe_path(FRONTEND_DIST_DIR, path.lstrip("/"))
     if safe is None:

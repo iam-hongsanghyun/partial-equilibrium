@@ -25,6 +25,11 @@ ASSET_CONTENT_TYPES = {
     ".png": "image/png",
     ".svg": "image/svg+xml",
     ".map": "application/json; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
 }
 
 

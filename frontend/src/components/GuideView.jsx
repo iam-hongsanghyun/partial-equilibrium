@@ -547,8 +547,66 @@ const STEPS = [
     ),
   },
   {
-    id: "glossary",
+    id: "learn",
     number: "10",
+    title: "Tutorials & reference docs",
+    content: () => (
+      <div className="guide-body">
+        <p className="guide-lead">
+          Go deeper with the full tutorial suite and the reference documentation. These open in a new tab.
+        </p>
+        <div className="guide-concept-grid guide-concept-grid-2">
+          <div className="guide-concept-card">
+            <h4>📘 Build Your First Scenario</h4>
+            <p>A hands-on walkthrough that climbs the "closure ladder": base market → MSR → Carbon Cap Rule → price-elastic baseline → model coupling.</p>
+            <p><a href="/docs/tutorials/build-your-first-scenario.html" target="_blank" rel="noopener">Open the walkthrough →</a></p>
+          </div>
+          <div className="guide-concept-card">
+            <h4>📒 Scenario Cookbook</h4>
+            <p>~20 ready-to-run recipes grouped by theme — market foundations, allocation &amp; trade, price formation, supply-side policy, feedback, and real-world cases.</p>
+            <p><a href="/docs/tutorials/scenario-cookbook.html" target="_blank" rel="noopener">Open the cookbook →</a></p>
+          </div>
+          <div className="guide-concept-card">
+            <h4>🎓 Practitioner Training</h4>
+            <p>A role-based course built around real decisions — compliance, policy design, trading, transition strategy, scenario analysis, and calibration. Six modules with exercises.</p>
+            <p><a href="/docs/tutorials/practitioner-training.html" target="_blank" rel="noopener">Open the training course →</a></p>
+          </div>
+          <div className="guide-concept-card">
+            <h4>🗂️ Tutorials home</h4>
+            <p>The landing page that links all three tutorials in one place.</p>
+            <p><a href="/docs/tutorials/index.html" target="_blank" rel="noopener">Open tutorials home →</a></p>
+          </div>
+        </div>
+        <div className="guide-tip">
+          <strong>Reference documentation</strong>
+          <p style={{margin: "6px 0 8px"}}>Field-by-field and algorithm detail (Markdown):</p>
+          <ul style={{margin: "0 0 0 16px", paddingLeft: 0, columns: 2}}>
+            {[
+              ["Algorithm overview", "algorithm-overview.md"],
+              ["Data model (every field)", "data-model.md"],
+              ["MAC / abatement models", "mac-abatement.md"],
+              ["Market equilibrium", "market-equilibrium.md"],
+              ["Multi-year simulation & MSR", "multi-year-simulation.md"],
+              ["Carbon Cap Rule (CCR)", "carbon-cap-rule.md"],
+              ["Feedback A — price-elastic baseline", "feedback-price-elastic-baseline.md"],
+              ["Feedback B — model coupling", "feedback-coupling.md"],
+              ["Output-based allocation", "oba-allocation.md"],
+              ["Sector configuration", "sector-config.md"],
+              ["Technology transition", "technology-transition.md"],
+              ["Analysis tools (calibrate, batch)", "analysis-tools.md"],
+            ].map(([label, file]) => (
+              <li key={file}>
+                <a href={"/docs/" + file} target="_blank" rel="noopener">{label}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: "glossary",
+    number: "11",
     title: "Glossary",
     content: () => (
       <div className="guide-body">

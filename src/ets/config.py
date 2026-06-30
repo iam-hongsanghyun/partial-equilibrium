@@ -9,6 +9,7 @@ SRC_DIR = PROJECT_DIR / "src"
 FRONTEND_DIR = PROJECT_DIR / "frontend"
 FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
 EXAMPLES_DIR = PROJECT_DIR / "examples"
+DOCS_DIR = PROJECT_DIR / "docs"
 SERVERLESS_ROOT = Path(tempfile.gettempdir()) / "ets_runtime"
 
 if os.environ.get("VERCEL"):
