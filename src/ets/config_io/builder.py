@@ -104,6 +104,19 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
     return {"scenarios": [normalize_scenario(scenario) for scenario in scenarios]}
 
 
+_ALLOWED_MSR_MODES = {"bank_threshold", "price_band", "surplus_rule", "hybrid"}
+
+
+def _validated_msr_mode(scenario: dict[str, Any]) -> str:
+    mode = str(scenario.get("msr_mode") or "bank_threshold").strip()
+    if mode not in _ALLOWED_MSR_MODES:
+        raise ValueError(
+            f"Scenario '{scenario.get('name')}': msr_mode must be one of "
+            f"{sorted(_ALLOWED_MSR_MODES)}, got '{mode}'."
+        )
+    return mode
+
+
 def normalize_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
     scenario = blank_scenario()
     scenario.update(raw_scenario)
@@ -144,11 +157,29 @@ def normalize_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
         except (TypeError, ValueError):
             return float(default)
 
+    transmission_lambda = scenario.get("forward_transmission_lambda")
+    if transmission_lambda is not None:
+        transmission_lambda = float(transmission_lambda)
+        if not 0.0 <= transmission_lambda <= 1.0:
+            raise ValueError(
+                f"Scenario '{scenario['name']}': forward_transmission_lambda must "
+                f"be in [0, 1], got {transmission_lambda}."
+            )
+
     return {
         "name": scenario["name"],
         "model_approach": model_approach,
         "discount_rate": _fval("discount_rate", 0.04),
         "risk_premium": _fval("risk_premium", 0.0),
+        "forward_transmission_lambda": transmission_lambda,
+        # Banking equilibrium (Rubin/Schennach)
+        "banking_initial_bank": _fval("banking_initial_bank", 0.0),
+        "banking_strict_no_arbitrage": bool(
+            scenario.get("banking_strict_no_arbitrage", True)
+        ),
+        "banking_bank_tolerance": _fval("banking_bank_tolerance", 1e-6),
+        "banking_supply_rule_max_iters": int(_fval("banking_supply_rule_max_iters", 25)),
+        "banking_supply_rule_tolerance": _fval("banking_supply_rule_tolerance", 0.001),
         "reference_carbon_price": _fval("reference_carbon_price", 0.0),
         "nash_strategic_participants": list(scenario.get("nash_strategic_participants") or []),
         # MSR
@@ -159,6 +190,15 @@ def normalize_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
         "msr_release_rate": _fval("msr_release_rate", 50.0),
         "msr_cancel_excess": bool(scenario.get("msr_cancel_excess", False)),
         "msr_cancel_threshold": _fval("msr_cancel_threshold", 400.0),
+        # K-MSR decree modes (banking solver; kets-outlook msr.ts parameters)
+        "msr_mode": _validated_msr_mode(scenario),
+        "msr_price_band_high": _fval("msr_price_band_high", 25000.0),
+        "msr_price_band_low": _fval("msr_price_band_low", 15000.0),
+        "msr_surplus_upper_ratio": _fval("msr_surplus_upper_ratio", 0.18),
+        "msr_surplus_lower_ratio": _fval("msr_surplus_lower_ratio", 0.05),
+        "msr_max_intake_mt": _fval("msr_max_intake_mt", 20.0),
+        "msr_max_release_mt": _fval("msr_max_release_mt", 20.0),
+        "msr_initial_reserve_mt": _fval("msr_initial_reserve_mt", 0.0),
         # CCR (Carbon Cap Rule)
         "ccr_enabled": bool(scenario.get("ccr_enabled", False)),
         "ccr_phi_emissions": _fval("ccr_phi_emissions", 0.0),
@@ -230,6 +270,12 @@ def build_markets_from_config(config: dict[str, Any]) -> list[CarbonMarket]:
             "model_approach": scenario.get("model_approach", "competitive"),
             "discount_rate": scenario.get("discount_rate", 0.04),
             "risk_premium": scenario.get("risk_premium", 0.0),
+            "forward_transmission_lambda": scenario.get("forward_transmission_lambda"),
+            "banking_initial_bank": scenario.get("banking_initial_bank", 0.0),
+            "banking_strict_no_arbitrage": scenario.get("banking_strict_no_arbitrage", True),
+            "banking_bank_tolerance": scenario.get("banking_bank_tolerance", 1e-6),
+            "banking_supply_rule_max_iters": scenario.get("banking_supply_rule_max_iters", 25),
+            "banking_supply_rule_tolerance": scenario.get("banking_supply_rule_tolerance", 0.001),
             "reference_carbon_price": scenario.get("reference_carbon_price", 0.0),
             "nash_strategic_participants": scenario.get("nash_strategic_participants", []),
             "free_allocation_trajectories": scenario.get("free_allocation_trajectories", []),
@@ -245,6 +291,14 @@ def build_markets_from_config(config: dict[str, Any]) -> list[CarbonMarket]:
             "msr_release_rate": scenario.get("msr_release_rate", 50.0),
             "msr_cancel_excess": scenario.get("msr_cancel_excess", False),
             "msr_cancel_threshold": scenario.get("msr_cancel_threshold", 400.0),
+            "msr_mode": scenario.get("msr_mode", "bank_threshold"),
+            "msr_price_band_high": scenario.get("msr_price_band_high", 25000.0),
+            "msr_price_band_low": scenario.get("msr_price_band_low", 15000.0),
+            "msr_surplus_upper_ratio": scenario.get("msr_surplus_upper_ratio", 0.18),
+            "msr_surplus_lower_ratio": scenario.get("msr_surplus_lower_ratio", 0.05),
+            "msr_max_intake_mt": scenario.get("msr_max_intake_mt", 20.0),
+            "msr_max_release_mt": scenario.get("msr_max_release_mt", 20.0),
+            "msr_initial_reserve_mt": scenario.get("msr_initial_reserve_mt", 0.0),
             # CCR
             "ccr_enabled": scenario.get("ccr_enabled", False),
             "ccr_phi_emissions": scenario.get("ccr_phi_emissions", 0.0),
@@ -467,8 +521,23 @@ def build_market_from_year(
     market.model_approach = meta.get("model_approach", "competitive")
     market.discount_rate = float(meta.get("discount_rate") or 0.04)
     market.risk_premium = float(meta.get("risk_premium") or 0.0)
+    _ftl = meta.get("forward_transmission_lambda")
+    market.forward_transmission_lambda = None if _ftl is None else float(_ftl)
+    # Attach banking-equilibrium settings
+    market.banking_initial_bank = float(meta.get("banking_initial_bank") or 0.0)
+    market.banking_strict_no_arbitrage = bool(
+        meta.get("banking_strict_no_arbitrage", True)
+    )
+    market.banking_bank_tolerance = float(meta.get("banking_bank_tolerance") or 1e-6)
+    market.banking_supply_rule_max_iters = int(
+        meta.get("banking_supply_rule_max_iters") or 25
+    )
+    market.banking_supply_rule_tolerance = float(
+        meta.get("banking_supply_rule_tolerance") or 0.001
+    )
     market.nash_strategic_participants = list(meta.get("nash_strategic_participants") or [])
     market.carbon_budget = float(year_config.get("carbon_budget") or 0.0)
+    market.hoarding_inflow = float(year_config.get("hoarding_inflow") or 0.0)
     market.cap_trajectory = dict(meta.get("cap_trajectory") or {})
     market.price_floor_trajectory = dict(meta.get("price_floor_trajectory") or {})
     market.price_ceiling_trajectory = dict(meta.get("price_ceiling_trajectory") or {})
@@ -483,6 +552,14 @@ def build_market_from_year(
     market.msr_release_rate = float(meta.get("msr_release_rate") or 50.0)
     market.msr_cancel_excess = bool(meta.get("msr_cancel_excess", False))
     market.msr_cancel_threshold = float(meta.get("msr_cancel_threshold") or 400.0)
+    market.msr_mode = str(meta.get("msr_mode") or "bank_threshold")
+    market.msr_price_band_high = float(meta.get("msr_price_band_high") or 25000.0)
+    market.msr_price_band_low = float(meta.get("msr_price_band_low") or 15000.0)
+    market.msr_surplus_upper_ratio = float(meta.get("msr_surplus_upper_ratio") or 0.18)
+    market.msr_surplus_lower_ratio = float(meta.get("msr_surplus_lower_ratio") or 0.05)
+    market.msr_max_intake_mt = float(meta.get("msr_max_intake_mt") or 20.0)
+    market.msr_max_release_mt = float(meta.get("msr_max_release_mt") or 20.0)
+    market.msr_initial_reserve_mt = float(meta.get("msr_initial_reserve_mt") or 0.0)
     # Attach CCR settings (Carbon Cap Rule)
     market.ccr_enabled = bool(meta.get("ccr_enabled", False))
     market.ccr_phi_emissions = float(meta.get("ccr_phi_emissions") or 0.0)

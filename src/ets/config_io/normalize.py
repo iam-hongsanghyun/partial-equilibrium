@@ -24,7 +24,7 @@ def _norm_traj(raw: Any) -> dict:
         return {}
     return out
 ALLOWED_ABATEMENT_TYPES = {"linear", "threshold", "piecewise"}
-ALLOWED_MODEL_APPROACHES = {"competitive", "hotelling", "nash_cournot", "all"}
+ALLOWED_MODEL_APPROACHES = {"competitive", "hotelling", "banking", "nash_cournot", "all"}
 
 
 def normalize_year(raw_year: dict[str, Any]) -> dict[str, Any]:
@@ -73,6 +73,11 @@ def normalize_year(raw_year: dict[str, Any]) -> dict[str, Any]:
         year_config.get("manual_expected_price", 0.0)
     )
     year_config["carbon_budget"] = float(year_config.get("carbon_budget") or 0.0)
+    year_config["hoarding_inflow"] = float(year_config.get("hoarding_inflow") or 0.0)
+    if year_config["hoarding_inflow"] < 0.0:
+        raise ValueError(
+            f"Year '{year_config['year']}': hoarding_inflow must be >= 0."
+        )
     year_config["eua_price"] = float(year_config.get("eua_price") or 0.0)
     # Per-jurisdiction and ensemble EUA prices — keep as dicts, just ensure float values
     raw_eua_prices = year_config.get("eua_prices") or {}

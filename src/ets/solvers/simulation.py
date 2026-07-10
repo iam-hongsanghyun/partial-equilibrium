@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
@@ -15,6 +16,8 @@ from ..market import CarbonMarket
 from .msr import MSRState
 from .ccr import CCRState
 from ..config_io import build_markets_from_config, load_config
+
+logger = logging.getLogger(__name__)
 
 
 def _market_year_sort_key(market: CarbonMarket) -> tuple[float, str]:
@@ -229,6 +232,23 @@ def _collect_path_results(
             item.get("ccr_emissions_deviation", 0.0)
         )
         summary["CCR Cost Deviation"] = float(item.get("ccr_cost_deviation", 0.0))
+        # Patch in banking-equilibrium diagnostics when present
+        if "banking_aggregate_bank" in item:
+            summary["Banking Aggregate Bank"] = float(item["banking_aggregate_bank"])
+            summary["Banking Regime"] = str(item["banking_regime"])
+            summary["Banking Window Start"] = int(item["banking_window_start"])
+            summary["Banking Window End"] = int(item["banking_window_end"])
+            summary["Banking Floor Cancelled"] = float(
+                item["banking_floor_cancelled"]
+            )
+        # Patch in forward-transmission (λ-blend) diagnostics when present
+        if "transmission_lambda" in item:
+            summary["Forward Transmission Lambda"] = float(item["transmission_lambda"])
+            summary["Static Component Price"] = float(item["static_component_price"])
+            summary["Hotelling Component Price"] = float(
+                item["hotelling_component_price"]
+            )
+            summary["Reserve Floor Price"] = float(item["reserve_floor_price"])
         scenario_summaries.append(summary)
         participant_frames.append(participant_df)
 
@@ -281,7 +301,34 @@ def run_simulation(markets: list[CarbonMarket]) -> tuple[pd.DataFrame, pd.DataFr
                 convergence_tol=float(getattr(m0, "solver_nash_convergence_tol", 1e-3) or 1e-3),
             )
 
-        if approach == "hotelling":
+        transmission_lambda = getattr(m0, "forward_transmission_lambda", None)
+        if transmission_lambda is not None and approach != "competitive":
+            logger.warning(
+                f"Scenario '{scenario_name}': forward_transmission_lambda is only "
+                f"applied under model_approach='competitive' (got '{approach}'); "
+                "ignoring the λ blend."
+            )
+            transmission_lambda = None
+
+        if transmission_lambda is not None:
+            from .transmission import solve_transmission_path
+
+            path = solve_transmission_path(
+                ordered_markets, lam=float(transmission_lambda), **_hot_kwargs()
+            )
+            _collect_path_results(ordered_markets, path, scenario_summaries, participant_frames)
+
+        elif approach == "banking":
+            from .banking import solve_banking_path
+
+            path = solve_banking_path(
+                ordered_markets,
+                discount_rate=float(getattr(m0, "discount_rate", 0.055) or 0.055),
+                risk_premium=float(getattr(m0, "risk_premium", 0.0) or 0.0),
+            )
+            _collect_path_results(ordered_markets, path, scenario_summaries, participant_frames)
+
+        elif approach == "hotelling":
             path = solve_hotelling_path(ordered_markets, **_hot_kwargs())
             _collect_path_results(ordered_markets, path, scenario_summaries, participant_frames)
 

@@ -1,6 +1,8 @@
 from .simulation import run_simulation, solve_scenario_path, run_simulation_from_config, run_simulation_from_file
 from .hotelling import solve_hotelling_path
 from .nash import solve_nash_path
+from .transmission import blend_prices, solve_transmission_path
+from .banking import BANKING_DEFAULTS, solve_banking_path
 from .msr import MSRState, MSR_DEFAULTS
 from .ccr import CCRState, CCR_DEFAULTS
 from .expectations import (
@@ -25,6 +27,10 @@ __all__ = [
     "run_simulation_from_file",
     "solve_hotelling_path",
     "solve_nash_path",
+    "blend_prices",
+    "solve_transmission_path",
+    "BANKING_DEFAULTS",
+    "solve_banking_path",
     "MSRState",
     "MSR_DEFAULTS",
     "CCRState",
