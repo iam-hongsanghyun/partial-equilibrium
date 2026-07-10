@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Union
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Union
+
+if TYPE_CHECKING:
+    from ..protocols import DemandOverlay
 
 
 CostSpec = Union[float, Callable[[float], float]]
@@ -117,6 +120,22 @@ class MarketParticipant:
     # P_ref = 0 disables the channel (baseline stays fixed — identical to before).
     output_price_elasticity: float = 0.0       # ε, dimensionless (≥ 0)
     reference_carbon_price: float = 0.0        # P_ref, price units (0 disables)
+    # Attached demand overlays (``core.protocols.DemandOverlay``) — today at
+    # most one, the price-elastic baseline (``features.elastic_baseline``);
+    # ``activity_multiplier`` below dispatches over this tuple. Empty means
+    # no demand-side feedback (product-over-empty-tuple == 1.0, the
+    # pre-refactor no-op).
+    demand_overlays: tuple[DemandOverlay, ...] = ()
+
+    # Fields that jointly determine whether the price-elastic baseline
+    # channel is active; mutating any of them re-validates the loud guard
+    # below (``_validate_elastic_guard``) so post-construction stamping can
+    # never silently leave an active channel without its overlay — see
+    # ``__setattr__`` and ``features/elastic_baseline/plugin.py``
+    # ``stamp_and_attach`` (the ONLY sanctioned post-construction mutator).
+    _ELASTIC_GUARD_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"output_price_elasticity", "reference_carbon_price", "demand_overlays"}
+    )
 
     def __post_init__(self) -> None:
         self._validate_state(
@@ -139,6 +158,80 @@ class MarketParticipant:
         if self.reference_carbon_price < 0:
             raise ValueError(
                 f"{self.name}: reference_carbon_price must be non-negative."
+            )
+        self._validate_elastic_guard()
+        # Arms `__setattr__`'s revalidation for every assignment from here
+        # on — see `_validate_elastic_guard` / `__setattr__` docstrings.
+        self._elastic_guard_armed = True
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute, then re-validate the elastic-baseline guard.
+
+        Any post-construction assignment to ``output_price_elasticity``,
+        ``reference_carbon_price``, or ``demand_overlays`` re-runs
+        ``_validate_elastic_guard`` immediately after the write (once
+        ``__post_init__`` has armed the check — during ``__post_init__``
+        itself the fields are set one at a time by the generated
+        ``__init__`` and are not yet all consistent). This is what closes
+        the bypass the Arbitration outcomes (O8, binding) require: a bare
+        ``participant.reference_carbon_price = x`` on an elastic participant
+        with no overlay attached raises immediately, instead of silently
+        leaving the channel active-but-unwired. ``stamp_and_attach``
+        (``features/elastic_baseline/plugin.py``) is the validated path —
+        it always attaches the overlay before (or in the same call as) the
+        price stamp, so it never trips this guard.
+
+        Args:
+            name: Attribute name being set.
+            value: New value.
+
+        Raises:
+            ValueError: via ``_validate_elastic_guard`` if the write leaves
+                the elastic-baseline channel active without an overlay.
+        """
+        super().__setattr__(name, value)
+        if name in self._ELASTIC_GUARD_FIELDS and getattr(
+            self, "_elastic_guard_armed", False
+        ):
+            self._validate_elastic_guard()
+
+    def _validate_elastic_guard(self) -> None:
+        """Raise if the elastic-baseline channel is active without its overlay.
+
+        The loud guard the Arbitration outcomes (O8, binding) mandate:
+        ``output_price_elasticity > 0`` and ``reference_carbon_price > 0``
+        jointly activate the price-elastic baseline (mirroring
+        ``activity_multiplier``'s activation predicate); an active channel
+        MUST carry at least one ``demand_overlays`` entry, or the baseline
+        would silently stay fixed even though the scenario config says it
+        should contract. Checked at construction (``__post_init__``) AND at
+        every subsequent mutation of the three fields it reads
+        (``__setattr__``) — a guard that only fired in ``__post_init__``
+        would miss ``config_io/builder.py``'s post-construction
+        ``reference_carbon_price`` stamp, which is exactly the bypass this
+        guard exists to close.
+
+        Raises:
+            ValueError: if ``output_price_elasticity > 0`` and
+                ``reference_carbon_price > 0`` but ``demand_overlays`` is
+                empty.
+        """
+        if (
+            self.output_price_elasticity > 0.0
+            and self.reference_carbon_price > 0.0
+            and not self.demand_overlays
+        ):
+            raise ValueError(
+                f"{self.name}: output_price_elasticity="
+                f"{self.output_price_elasticity!r} and reference_carbon_price="
+                f"{self.reference_carbon_price!r} are both active, but no demand "
+                "overlay is attached — the price-elastic baseline would silently "
+                "never contract. Use "
+                "ets.features.elastic_baseline.plugin.stamp_and_attach(participant, "
+                "reference_carbon_price) to stamp reference_carbon_price and attach "
+                "the ElasticBaselineOverlay together; a direct "
+                "`participant.reference_carbon_price = ...` assignment bypasses the "
+                "overlay and is rejected."
             )
 
     @staticmethod
@@ -171,30 +264,49 @@ class MarketParticipant:
         return self.initial_emissions * self.max_abatement_share
 
     def activity_multiplier(self, carbon_price: float) -> float:
-        r"""Price-elastic activity scaling for the BAU baseline (Option A).
+        r"""Demand-overlay dispatcher: activity scaling for the BAU baseline.
 
-        Linearised price response of carbon-intensive activity around the
-        reference price; the baseline emissions, abatement potential, and
-        benchmarked free allocation all scale by this factor.
+        Product over every attached ``demand_overlays`` entry (today at most
+        one — the price-elastic baseline, Option A,
+        ``features.elastic_baseline.plugin.ElasticBaselineOverlay``); the
+        baseline emissions, abatement potential, and benchmarked free
+        allocation all scale by the returned factor. An empty
+        ``demand_overlays`` tuple is the pre-refactor no-op: the product over
+        zero factors is 1.0, identical to the old ``eps <= 0 or P_ref <= 0``
+        early return, since a participant with the elastic channel disabled
+        never gets an overlay attached (``features.elastic_baseline.plugin
+        .stamp_and_attach``; see ``MarketParticipant``'s loud guard, which
+        makes the reverse — an active channel with no overlay — impossible
+        to construct).
 
         Algorithm:
-            LaTeX:  $m(P) = \max\!\left(0,\; 1 - \varepsilon\,
+            LaTeX:  $$m(P) = \prod_i m_i(P)$$
+                    with, for the price-elastic overlay,
+                    $m_i(P) = \max\!\left(0,\; 1 - \varepsilon\,
                     \frac{P - P_\mathrm{ref}}{P_\mathrm{ref}}\right)$
-            ASCII:  m(P) = max(0, 1 - eps * (P - P_ref) / P_ref)
+            ASCII:  m(P) = prod(overlay.baseline_multiplier(P) for overlay
+                    in demand_overlays); elastic overlay:
+                    m_i(P) = max(0, 1 - eps * (P - P_ref) / P_ref)
 
         Symbols:
             P      : carbon price (price units)
             P_ref  : reference (undistorted) carbon price; reference_carbon_price
             eps    : output_price_elasticity ε (dimensionless, ≥ 0)
 
-        Returns 1.0 (no feedback) when ε ≤ 0 or P_ref ≤ 0.  At P = P_ref the
-        multiplier is 1; it falls linearly as P rises and is floored at 0.
+        At P = P_ref the (single, elastic) multiplier is 1; it falls
+        linearly as P rises and is floored at 0.
+
+        Args:
+            carbon_price: Carbon price P (price units).
+
+        Returns:
+            Dimensionless multiplier m(P) >= 0; 1.0 with no overlays
+            attached.
         """
-        eps = self.output_price_elasticity
-        p_ref = self.reference_carbon_price
-        if eps <= 0.0 or p_ref <= 0.0:
-            return 1.0
-        return max(0.0, 1.0 - eps * (carbon_price - p_ref) / p_ref)
+        multiplier = 1.0
+        for overlay in self.demand_overlays:
+            multiplier *= overlay.baseline_multiplier(carbon_price)
+        return multiplier
 
     # ── Delegate methods — implementation lives in compliance.py / technology.py ──
 

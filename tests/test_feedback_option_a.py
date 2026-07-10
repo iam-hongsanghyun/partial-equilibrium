@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from ets.config_io import build_participant
+from ets.features.elastic_baseline.plugin import stamp_and_attach
 from ets.solvers import run_simulation_from_config, run_simulation_from_file
 
 EXAMPLE = (
@@ -22,6 +23,16 @@ EXAMPLE = (
 
 
 def _participant(eps: float, p_ref: float):
+    """Build a participant and stamp/attach the elastic baseline via the plugin door.
+
+    Uses ``stamp_and_attach`` rather than a bare
+    ``p.reference_carbon_price = p_ref`` assignment: the latter is the
+    bypass ``MarketParticipant``'s loud guard rejects for ``eps > 0``
+    (Arbitration outcomes, O8) — see
+    ``tests/test_elastic_baseline_overlay.py`` for a direct test of that
+    guard. This helper reproduces the exact multiplier values the
+    pre-refactor direct assignment produced.
+    """
     p = build_participant(
         {
             "name": "X",
@@ -36,8 +47,7 @@ def _participant(eps: float, p_ref: float):
             "output_price_elasticity": eps,
         }
     )
-    p.reference_carbon_price = p_ref
-    return p
+    return stamp_and_attach(p, p_ref)
 
 
 # ── Unit: the multiplier ─────────────────────────────────────────────────────

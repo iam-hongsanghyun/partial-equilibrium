@@ -14,6 +14,7 @@ from ..features.cbam.plugin import (
     CBAMSummaryTotalsReporter,
 )
 from ..features.ccr.plugin import CCRSummaryPlaceholderReporter
+from ..features.elastic_baseline.plugin import stamp_and_attach as _elastic_stamp_and_attach
 from ..features.msr.plugin import MSRSummaryPlaceholderReporter
 from ..features.sectors.plugin import SectorSummaryReporter
 from .normalize import (
@@ -471,10 +472,17 @@ def build_market_from_year(
 
     # Option A: stamp the scenario reference carbon price onto each participant
     # so its price-elastic baseline has an anchor (0 keeps the channel disabled).
+    # The elastic_baseline plugin OWNS this stamping step (Arbitration outcomes,
+    # O8, binding): it stamps reference_carbon_price AND attaches the
+    # ElasticBaselineOverlay in one call, per participant, conditional on that
+    # participant's own output_price_elasticity > 0 — a bare field assignment
+    # here would trip MarketParticipant's loud guard for elastic participants.
     reference_carbon_price = float(meta.get("reference_carbon_price") or 0.0)
     if reference_carbon_price > 0.0:
-        for participant in participants:
-            participant.reference_carbon_price = reference_carbon_price
+        participants = [
+            _elastic_stamp_and_attach(participant, reference_carbon_price)
+            for participant in participants
+        ]
 
     free_allocations = sum(participant.free_allocation for participant in participants)
     reserved_allowances = float(year_config.get("reserved_allowances", 0.0))
