@@ -103,16 +103,23 @@ _STDLIB_MODULES = frozenset(sys.stdlib_module_names)
 # that package itself becomes a shim (O8+). `ets.participant.*` became a
 # shim package in O2; `ets.market.*` in O3; `ets.solvers.expectations` in O4;
 # `ets.solvers.{msr,ccr,events}` became pure re-export shims in the engine
-# order (v1 O8 / v2 O12). `ets.solvers.simulation` is deliberately NOT
-# listed: it still holds real solver code (solve_scenario_path) until the
-# competitive feature move (v1 O10 / v2 O14) — only pure shims belong here.
+# order (v1 O8 / v2 O12); `ets.solvers.banking` in the banking feature order
+# (v1 O9 / v2 O13); `ets.solvers.simulation` in the competitive feature
+# order (v1 O10 / v2 O14); `ets.solvers.{hotelling,nash}` in the
+# hotelling/nash feature order (v1 O11 / v2 O15); `ets.solvers.transmission`
+# in the transmission feature order (v1 O12 / v2 O16).
 SHIM_MODULES: frozenset[str] = frozenset(
     {
         "ets.simulation",
+        "ets.solvers.banking",
         "ets.solvers.ccr",
         "ets.solvers.events",
         "ets.solvers.expectations",
+        "ets.solvers.hotelling",
         "ets.solvers.msr",
+        "ets.solvers.nash",
+        "ets.solvers.simulation",
+        "ets.solvers.transmission",
         "ets.market",
         "ets.market.core",
         "ets.market.equilibrium",
@@ -142,18 +149,10 @@ _T4_GROUPS: frozenset[str] = frozenset({"analysis", "coupling", "blocks"})
 # docstring); an edge that no longer exists is a stale allowlist entry and
 # fails `test_pending_violations_allowlist_has_no_stale_entries`, so this
 # dict can only shrink. Target state (O14): empty.
-PENDING_VIOLATIONS: dict[tuple[str, str], str] = {
-    # (c)+(d) ledger move (v1 O7 / v2 O11): core/ledger.py keeps the moved
-    # function's LEGACY msr_state=/ccr_state= kwargs verbatim, whose
-    # translation constructs MSRCapRule/CCRCapRule (lazy import +
-    # TYPE_CHECKING state imports, both against the feature packages since
-    # the runtime moved there in v1 O8 / v2 O12). The kernel must not know
-    # the rule implementations; the edges die when the hotelling/nash move
-    # (v1 O11 / v2 O15) retires the last legacy caller and the kwargs are
-    # dropped.
-    ("ets.core.ledger", "ets.features.msr"): "O15",
-    ("ets.core.ledger", "ets.features.ccr"): "O15",
-}
+# EMPTY since the hotelling/nash feature order (v1 O11 / v2 O15) retired the
+# ledger's legacy-kwarg translation — the ratchet's target state. Any new
+# entry needs a named work order that removes it.
+PENDING_VIOLATIONS: dict[tuple[str, str], str] = {}
 
 
 # --------------------------------------------------------------------------

@@ -50,9 +50,7 @@ def run_simulation(markets: list[CarbonMarket]) -> tuple[pd.DataFrame, pd.DataFr
         raise ValueError("At least one market scenario must be provided.")
 
     # Lazy imports to avoid circular dependency
-    from ..solvers.hotelling import solve_hotelling_path
-    from ..solvers.nash import solve_nash_path
-    from ..solvers.simulation import solve_scenario_path
+    from .wiring import solve_hotelling_path, solve_nash_path, solve_scenario_path
 
     grouped_markets: dict[str, list[CarbonMarket]] = defaultdict(list)
     for market in markets:
@@ -94,7 +92,7 @@ def run_simulation(markets: list[CarbonMarket]) -> tuple[pd.DataFrame, pd.DataFr
             transmission_lambda = None
 
         if transmission_lambda is not None:
-            from ..solvers.transmission import solve_transmission_path
+            from .wiring import solve_transmission_path
 
             path = solve_transmission_path(
                 ordered_markets, lam=float(transmission_lambda), **_hot_kwargs()
@@ -102,7 +100,7 @@ def run_simulation(markets: list[CarbonMarket]) -> tuple[pd.DataFrame, pd.DataFr
             _collect_path_results(ordered_markets, path, scenario_summaries, participant_frames)
 
         elif approach == "banking":
-            from ..solvers.banking import solve_banking_path
+            from .wiring import solve_banking_path
 
             path = solve_banking_path(
                 ordered_markets,

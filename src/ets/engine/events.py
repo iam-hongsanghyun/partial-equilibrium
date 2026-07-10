@@ -55,6 +55,7 @@ from copy import deepcopy
 import pandas as pd
 
 from ..core.protocols import SpliceCarrier
+from ..features.banking.plugin import BANK_CARRIER
 from ..features.msr.plugin import RESERVE_CARRIER
 
 logger = logging.getLogger(__name__)
@@ -63,10 +64,9 @@ logger = logging.getLogger(__name__)
 # ── SpliceCarrier wiring literal (binding Arbitration outcome on PLAN v2) ────
 # Declarative form of the two state variables carried across event segments:
 #
-#   1. the aggregate bank — ALWAYS carried (predicate always-true). The
-#      banking feature has no plugin door yet, so its carrier is defined
-#      here directly; it moves to features/banking/plugin.py with the
-#      banking move (v1 O9 / v2 O13).
+#   1. the aggregate bank — ALWAYS carried (predicate always-true). Provided
+#      by the banking feature's plugin door (``features/banking/plugin.py``
+#      since the banking move, v1 O9 / v2 O13).
 #   2. the MSR reserve pool — carried only when the MSR ran in the finished
 #      segment (the ``msr_ran_last_segment`` condition; a decree announced
 #      mid-horizon with a pre-funded reserve keeps its funding). Provided by
@@ -77,12 +77,6 @@ logger = logging.getLogger(__name__)
 # behaviour preservation outranks protocol purity (Arbitration outcomes);
 # this literal is the reviewed declaration those inline lines implement.
 # Literal order is stamp order (bank first, then the reserve pool).
-BANK_CARRIER = SpliceCarrier(
-    column="Banking Aggregate Bank",
-    config_field="banking_initial_bank",
-    carry_if=lambda config: True,
-)
-
 SPLICE_CARRIERS: tuple[SpliceCarrier, ...] = (BANK_CARRIER, RESERVE_CARRIER)
 
 

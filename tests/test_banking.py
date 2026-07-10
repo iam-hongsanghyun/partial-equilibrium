@@ -202,7 +202,9 @@ def test_piecewise_mac_terminal_residual_is_loud(caplog):
             # falls strictly between the 0 Mt and 40 Mt plateaus.
             "mac_blocks": [{"amount": 20.0, "marginal_cost": 1000.0}],
         }
-    with caplog.at_level(logging.WARNING, logger="ets.solvers.banking"):
+    # Logger channel follows the moved code (v1 O9 / v2 O13): the terminal
+    # residual warning is emitted by features/banking/window.py.
+    with caplog.at_level(logging.WARNING, logger="ets.features.banking.window"):
         path = solve_banking_path(
             build_markets_from_config(config), discount_rate=R
         )

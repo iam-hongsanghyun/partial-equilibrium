@@ -28,11 +28,7 @@ from ..blocks import (
 )
 from ..config import EXAMPLES_DIR, USER_SCENARIOS_DIR
 from ..config_io import blank_config, build_markets_from_config, load_config, save_config
-from ..engine import run_simulation
-
-# solve_scenario_path stays in the solvers tier until the competitive
-# feature move (v1 O10 / v2 O14, docs/feature-modules-plan.md).
-from ..solvers.simulation import solve_scenario_path
+from ..engine import run_simulation, solve_scenario_path
 
 
 def _predefined_templates() -> list[dict]:

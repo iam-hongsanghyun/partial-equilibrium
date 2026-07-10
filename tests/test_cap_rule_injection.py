@@ -175,7 +175,10 @@ def test_ccr_post_clear_flag_gate_blocks_recording():
     assert rule.ccr_state.prev_abatement_cost is None
 
 
-# ── The legacy-kwarg translation inside _simulate_path_details ───────────────
+# ── The engine's default cap-rule wiring on simulate_path_details ────────────
+# (The legacy msr_state=/ccr_state= kwargs and their translation retired at
+# the hotelling/nash feature move, v1 O11 / v2 O15; these tests now pin the
+# wiring-default ≡ hand-injected equivalence and the kwargs' retirement.)
 
 
 def _buyer(max_abatement: float = 100.0) -> dict:
@@ -260,15 +263,19 @@ def _both_rules_scenario() -> dict:
     }
 
 
-def test_legacy_kwargs_translate_to_the_injected_rules():
-    """msr_state=/ccr_state= and cap_rules=[CCR, MSR] solve identical paths."""
+def test_default_wiring_matches_explicitly_injected_rules():
+    """default_cap_rules(m0, "competitive") and cap_rules=[CCR, MSR] solve
+    identical paths (formerly the legacy-kwarg translation test; the
+    expected numbers are unchanged)."""
+    from ets.engine import default_cap_rules
+
     expected = {"2030": 25.0, "2031": 45.0}
 
+    wired_markets = build_markets_from_config({"scenarios": [_both_rules_scenario()]})
     legacy = _simulate_path_details(
-        build_markets_from_config({"scenarios": [_both_rules_scenario()]}),
+        wired_markets,
         expected,
-        msr_state=MSRState(),
-        ccr_state=CCRState(),
+        cap_rules=default_cap_rules(wired_markets[0], "competitive"),
     )
     injected = _simulate_path_details(
         build_markets_from_config({"scenarios": [_both_rules_scenario()]}),
@@ -298,14 +305,16 @@ def test_legacy_kwargs_translate_to_the_injected_rules():
     np.testing.assert_allclose(float(injected[1]["equilibrium"]["price"]), 41.5, rtol=0, atol=ATOL)
 
 
-def test_cap_rules_and_legacy_kwargs_are_mutually_exclusive():
+def test_legacy_state_kwargs_are_retired():
+    """The legacy msr_state=/ccr_state= kwargs must stay retired (v1 O11 /
+    v2 O15): passing them fails loudly rather than silently solving a
+    rule-translated path."""
     markets = build_markets_from_config({"scenarios": [_both_rules_scenario()]})
-    with pytest.raises(ValueError, match="not both"):
+    with pytest.raises(TypeError):
         _simulate_path_details(
             markets,
             {"2030": 25.0, "2031": 45.0},
             msr_state=MSRState(),
-            cap_rules=[MSRCapRule(MSRState())],
         )
 
 

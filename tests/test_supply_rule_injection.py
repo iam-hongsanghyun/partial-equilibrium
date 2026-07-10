@@ -357,7 +357,9 @@ def test_fixed_point_iteration_count_does_not_change_the_reserve_trajectory(capl
     fixed point. A rule instance shared across iterations would keep
     mutating its reserve on every extra evaluation and the pool trajectory
     would diverge from the plain solve."""
-    with caplog.at_level(logging.DEBUG, logger="ets.solvers.banking"):
+    # Logger channel follows the moved code (v1 O9 / v2 O13): the iteration
+    # debug lines are emitted by features/banking/solver.py.
+    with caplog.at_level(logging.DEBUG, logger="ets.features.banking.solver"):
         base = solve_banking_path(build_markets_from_config(_decree_config()), discount_rate=R)
     iteration_logs = [
         rec.message for rec in caplog.records if "supply-rule iteration" in rec.message
@@ -369,7 +371,7 @@ def test_fixed_point_iteration_count_does_not_change_the_reserve_trajectory(capl
     forced_config["scenarios"][0]["banking_supply_rule_tolerance"] = -1.0
     forced_config["scenarios"][0]["banking_supply_rule_max_iters"] = 12
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="ets.solvers.banking"):
+    with caplog.at_level(logging.WARNING, logger="ets.features.banking.solver"):
         forced = solve_banking_path(build_markets_from_config(forced_config), discount_rate=R)
     # The forced run really did exhaust its iteration budget (loud fallback).
     assert any("did not converge" in rec.message for rec in caplog.records)

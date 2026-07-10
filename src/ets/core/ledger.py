@@ -30,13 +30,6 @@ if TYPE_CHECKING:
     from .market.model import CarbonMarket
     from .protocols import CapRule
 
-    # TRANSITIONAL (legacy-kwarg translation, see simulate_path_details):
-    # allowlisted in tests/test_module_isolation.py PENDING_VIOLATIONS; the
-    # edge dies when the hotelling/nash move (v1 O11 / v2 O15) retires the
-    # last legacy msr_state=/ccr_state= caller.
-    from ..features.ccr import CCRState
-    from ..features.msr import MSRState
-
 
 def market_year_sort_key(market: CarbonMarket) -> tuple[float, str]:
     """Chronological sort key for a market's year label.
@@ -53,9 +46,7 @@ def market_year_sort_key(market: CarbonMarket) -> tuple[float, str]:
 def simulate_path_details(
     ordered_markets: list[CarbonMarket],
     expected_prices: dict[str, float],
-    msr_state: MSRState | None = None,
-    ccr_state: CCRState | None = None,
-    cap_rules: Sequence[CapRule] | None = None,
+    cap_rules: Sequence[CapRule] = (),
 ) -> list[dict]:
     """Simulate the competitive per-year path with injected cap rules.
 
@@ -65,46 +56,24 @@ def simulate_path_details(
     see ``ets.core.protocols.CapRule``). Composition is additive in list
     order (F1): ``effective_carry += delta_q_i``, CCR before MSR.
 
+    The legacy ``msr_state=``/``ccr_state=`` kwargs (and their internal
+    translation to rules) retired with the hotelling/nash feature move
+    (v1 O11 / v2 O15): callers pass ``cap_rules`` explicitly — the engine
+    wiring (``ets.engine.wiring.default_cap_rules``) builds today's default
+    composition per approach.
+
     Args:
         ordered_markets: Markets sorted chronologically.
         expected_prices: Year label → expected future price [currency/tCO2].
-        msr_state: LEGACY kwarg — translated internally to ``MSRCapRule``.
-            Mutually exclusive with ``cap_rules``.
-        ccr_state: LEGACY kwarg — translated internally to ``CCRCapRule``.
-            Mutually exclusive with ``cap_rules``.
-        cap_rules: Cap rules applied in list order. ``None`` (default)
-            triggers the legacy translation: ``[CCRCapRule(ccr_state),
-            MSRCapRule(msr_state)]`` from whichever states are given —
-            preserving the wiring-literal order (CCR before MSR). Pass an
-            empty sequence for an explicitly rule-free path.
+        cap_rules: Cap rules applied in list order (wiring-literal order:
+            CCR before MSR, F1). Default ``()`` is an explicitly rule-free
+            path — behaviour-identical to the pre-retirement no-kwarg call
+            (whose translation with no states also produced no rules).
 
     Returns:
         One details dict per year (market, equilibrium, participant frame,
         and the MSR/CCR diagnostics keys in their pinned order).
     """
-    if cap_rules is None:
-        # Legacy-kwarg translation: state objects become injected rules in
-        # the fixed wiring-literal order (CCR before MSR, F1).
-        # TRANSITIONAL lazy import — the kernel must not know the rule
-        # implementations (tests/test_module_isolation.py clause (d); edge
-        # allowlisted in PENDING_VIOLATIONS). This branch dies with the
-        # legacy msr_state=/ccr_state= kwargs once the hotelling/nash move
-        # (v1 O11 / v2 O15) retires their last caller.
-        from ..features.ccr import CCRCapRule
-        from ..features.msr import MSRCapRule
-
-        rules: list[CapRule] = []
-        if ccr_state is not None:
-            rules.append(CCRCapRule(ccr_state))
-        if msr_state is not None:
-            rules.append(MSRCapRule(msr_state))
-        cap_rules = rules
-    elif msr_state is not None or ccr_state is not None:
-        raise ValueError(
-            "Pass either cap_rules or the legacy msr_state=/ccr_state= "
-            "kwargs, not both."
-        )
-
     bank_balances = {
         participant.name: 0.0 for participant in ordered_markets[0].participants
     }

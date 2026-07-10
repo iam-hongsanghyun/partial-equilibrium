@@ -18,6 +18,11 @@ from .wiring import (
     default_floor_rule_factory,
     default_friction,
     default_supply_rule_factories,
+    solve_banking_path,
+    solve_hotelling_path,
+    solve_nash_path,
+    solve_scenario_path,
+    solve_transmission_path,
 )
 
 __all__ = [
@@ -28,6 +33,11 @@ __all__ = [
     "run_simulation",
     "run_simulation_from_config",
     "run_simulation_from_file",
+    "solve_banking_path",
+    "solve_hotelling_path",
+    "solve_nash_path",
+    "solve_scenario_path",
     "solve_scenario_with_events",
+    "solve_transmission_path",
     "validate_policy_events",
 ]
