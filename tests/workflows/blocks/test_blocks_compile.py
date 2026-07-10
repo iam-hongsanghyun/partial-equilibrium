@@ -31,7 +31,7 @@ from ets.blocks import Edge, Graph, Node, compile_graph, validate_graph
 from ets.blocks.catalogue import BLOCK_CATALOGUE
 from ets.blocks.compile import per_year_value
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
+EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "examples"
 
 
 def _load(stem: str) -> dict[str, Any]:

@@ -1,8 +1,8 @@
 # Backward-compatibility shim — the MSR runtime moved to features/msr/
 # (state.py / rules.py / decree.py) in the engine work order (v1 O8 / v2 O12,
 # docs/feature-modules-plan.md); the defaults re-export from core.defaults
-# (O1/O6) stays. DeprecationWarning arms in the app-tier tidy order
-# (v1 O13 / v2 O17, milestone 0.3.0).
+# (O1/O6) stays.
+import warnings
 
 from ..core.defaults import (
     DECREE_MSR_MAX_INTAKE_MT,
@@ -20,6 +20,13 @@ from ..features.msr.decree import (
 )
 from ..features.msr.rules import MSRCapRule, ThresholdMSRSupplyRule
 from ..features.msr.state import MSRState
+
+warnings.warn(
+    "ets.solvers.msr is deprecated; import from ets.features.msr "
+    "(defaults: ets.core.defaults). Removal milestone: 0.3.0.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     "DECREE_MSR_MAX_INTAKE_MT",

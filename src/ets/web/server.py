@@ -5,7 +5,7 @@ from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from ..config import DOCS_DIR, FRONTEND_DIST_DIR
+from ..core.paths import DOCS_DIR, FRONTEND_DIST_DIR
 from .api import _json_safe
 from .handlers import ASSET_CONTENT_TYPES
 from .routes import ROUTES

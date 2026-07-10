@@ -14,7 +14,7 @@ from pathlib import Path
 
 import ets.web.api as api
 
-EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 
 
 def test_ets_logger_warning_reaches_payload(monkeypatch) -> None:

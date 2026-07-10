@@ -14,7 +14,7 @@ import pytest
 from ets.ccr import CCR_DEFAULTS, CCRState
 from ets.solvers import run_simulation_from_file
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "benmir_ccr_carbon_cap_rule.json"
+EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "benmir_ccr_carbon_cap_rule.json"
 
 
 # ── Unit: the rule arithmetic ────────────────────────────────────────────────

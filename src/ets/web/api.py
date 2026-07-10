@@ -26,7 +26,7 @@ from ..blocks import (
     graph_from_config,
     validate_graph,
 )
-from ..config import EXAMPLES_DIR, USER_SCENARIOS_DIR
+from ..core.paths import EXAMPLES_DIR, USER_SCENARIOS_DIR
 from ..config_io import blank_config, build_markets_from_config, load_config, save_config
 from ..engine import run_simulation, solve_scenario_path
 

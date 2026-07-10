@@ -46,11 +46,12 @@ Algorithm:
     LEGACY* — a flat compat shim's entire purpose is to re-export whatever
     the pre-migration flat module exposed (including private helpers), and
     LEGACY code is explicitly grandfathered ("exempt from tier rules but
-    still edge-collected", plan §3). Measured against the current tree, this
-    reading yields zero (h) violations today — the plan's own example
-    (`solvers/hotelling.py`, `solvers/nash.py` importing
-    `solvers/simulation.py:_simulate_path_details`) is LEGACY-to-LEGACY, not
-    a boundary crossing at all.
+    still edge-collected", plan §3). (Historical note: the plan's original
+    example — `solvers/hotelling.py`/`solvers/nash.py` importing
+    `solvers/simulation.py:_simulate_path_details` — retired with the
+    ledger move, v1 O7 / v2 O11: the ledger names are public in
+    `core/ledger.py` and only SHIM modules re-export the underscore
+    spellings.)
 
     Door-granular two-door contract (PLAN v2 §"Two-door features", O7):
     `ets.features` now exists, and PLAN v2 supersedes the v1 reading of
@@ -107,10 +108,13 @@ _STDLIB_MODULES = frozenset(sys.stdlib_module_names)
 # (v1 O9 / v2 O13); `ets.solvers.simulation` in the competitive feature
 # order (v1 O10 / v2 O14); `ets.solvers.{hotelling,nash}` in the
 # hotelling/nash feature order (v1 O11 / v2 O15); `ets.solvers.transmission`
-# in the transmission feature order (v1 O12 / v2 O16).
+# in the transmission feature order (v1 O12 / v2 O16); the `ets.solvers`
+# package itself in the shim-arming order (v1 O13 / v2 O17 —
+# compute_baseline_prices relocated to core/baseline.py).
 SHIM_MODULES: frozenset[str] = frozenset(
     {
         "ets.simulation",
+        "ets.solvers",
         "ets.solvers.banking",
         "ets.solvers.ccr",
         "ets.solvers.events",
@@ -149,9 +153,11 @@ _T4_GROUPS: frozenset[str] = frozenset({"analysis", "coupling", "blocks"})
 # docstring); an edge that no longer exists is a stale allowlist entry and
 # fails `test_pending_violations_allowlist_has_no_stale_entries`, so this
 # dict can only shrink. Target state (O14): empty.
-# EMPTY since the hotelling/nash feature order (v1 O11 / v2 O15) retired the
-# ledger's legacy-kwarg translation — the ratchet's target state. Any new
-# entry needs a named work order that removes it.
+# FLIPPED (v1 O14 / v2 O19): the allowlist reached its target state — empty —
+# and STAYS empty. The `_assert_no_violations` machinery is kept so a future
+# lead-modeller-APPROVED work order can stage a temporary edge (mapping it to
+# the order that removes it), but `test_ratchet_is_flipped_allowlist_empty`
+# fails on ANY entry: never add one just to make a red suite green.
 PENDING_VIOLATIONS: dict[tuple[str, str], str] = {}
 
 
@@ -552,4 +558,15 @@ def test_pending_violations_allowlist_has_no_stale_entries() -> None:
     assert not stale, (
         "PENDING_VIOLATIONS references edge(s) that no longer exist in the "
         f"current import graph — remove them, the ratchet has tightened: {stale}"
+    )
+
+
+def test_ratchet_is_flipped_allowlist_empty() -> None:
+    """The ratchet is FLIPPED (v1 O14 / v2 O19): the import contract is a
+    hard invariant. Adding a `PENDING_VIOLATIONS` entry requires a
+    lead-modeller-approved work order naming the removal order — a red
+    isolation suite is fixed by fixing the import, never by allowlisting."""
+    assert PENDING_VIOLATIONS == {}, (
+        "PENDING_VIOLATIONS must stay empty after the flip; found: "
+        f"{PENDING_VIOLATIONS}"
     )

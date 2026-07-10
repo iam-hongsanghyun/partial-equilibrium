@@ -5,8 +5,8 @@
 # default rule wiring exactly as this module used to (decree XOR
 # bank-threshold from the first market's flags, floor-cancellation slot,
 # hoarding friction, delivered-floor clip); the transitional _default_*
-# delegates are alias re-exports of the wiring builders. DeprecationWarning
-# arms in the app-tier tidy order (v1 O13 / v2 O17, milestone 0.3.0).
+# delegates are alias re-exports of the wiring builders.
+import warnings
 
 from ..core.defaults import BANKING_DEFAULTS
 from ..engine.wiring import (
@@ -17,12 +17,21 @@ from ..engine.wiring import (
 from ..features.banking.window import solve_banking_window
 
 # Re-exports carried over from the pre-move module surface (O6): the decree
-# action and both MSR supply rules, importable from here until retirement.
-from .msr import (
+# action and both MSR supply rules, importable from here until retirement
+# (sourced one hop from the feature so only THIS shim's warning fires).
+from ..features.msr import (
     DecreeSupplyRule,
     MSRState,
     ThresholdMSRSupplyRule,
-    _decree_msr_action,
+    decree_msr_action as _decree_msr_action,
+)
+
+warnings.warn(
+    "ets.solvers.banking is deprecated; import solve_banking_path from "
+    "ets.engine (runtime: ets.features.banking; default wiring: "
+    "ets.engine.wiring). Removal milestone: 0.3.0.",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
 __all__ = [

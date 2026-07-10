@@ -8,8 +8,7 @@
 #     features/competitive/solver.py (v1 O10 / v2 O14); solve_scenario_path
 #     re-exports the ENGINE-BOUND entry point (ets.engine.wiring), which
 #     injects today's default cap rules exactly as this module used to.
-# DeprecationWarning arms in the app-tier tidy order (v1 O13 / v2 O17,
-# milestone 0.3.0).
+import warnings
 
 from ..core.ledger import (
     collect_path_results as _collect_path_results,
@@ -24,6 +23,14 @@ from ..engine.dispatch import (
 )
 from ..engine.wiring import solve_scenario_path
 from ..features.competitive.solver import _simulate_realized_prices
+
+warnings.warn(
+    "ets.solvers.simulation is deprecated; import run_simulation* and "
+    "solve_scenario_path from ets.engine (ledger internals: "
+    "ets.core.ledger). Removal milestone: 0.3.0.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     "_collect_path_results",

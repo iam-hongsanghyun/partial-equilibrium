@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .config import EXAMPLES_DIR
+from .core.paths import EXAMPLES_DIR
 from .config_io import blank_config, save_config
 from .engine import run_simulation_from_file
 

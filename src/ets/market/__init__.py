@@ -3,9 +3,15 @@
 # equilibrium.py -> clearing.py, results.py -> reporting.py).
 # Importing this package imports core.market, which performs the
 # CarbonMarket method attachment exactly as before the move.
-# DeprecationWarning arms in O13 (milestone 0.3.0) — see
-# docs/feature-modules-plan.md §4.
+import warnings
 
 from ..core.market import CarbonMarket
+
+warnings.warn(
+    "ets.market is deprecated; import from ets.core.market instead. "
+    "Removal milestone: 0.3.0.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = ["CarbonMarket"]

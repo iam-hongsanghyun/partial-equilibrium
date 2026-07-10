@@ -31,7 +31,7 @@ import ets.web.api as api
 from ets.blocks import BLOCK_CATALOGUE, Graph
 from ets.web.server import app
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
+EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "examples"
 
 
 def _call(method: str, path: str, body: bytes = b"", query: str = "") -> tuple[int, dict[str, Any]]:

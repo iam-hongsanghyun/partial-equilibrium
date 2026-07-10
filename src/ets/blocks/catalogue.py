@@ -142,7 +142,7 @@ def _price_formation_blocks() -> tuple[BlockSpec, ...]:
         id="competitive_clearing",
         label="Competitive Clearing",
         category="price_formation",
-        doc="solvers/simulation.py:solve_scenario_path, market/equilibrium.py:solve_equilibrium",
+        doc="features/competitive/solver.py:solve_scenario_path, core/market/clearing.py:solve_equilibrium",
         feature="competitive",
         params=(
             ParamSpec(
@@ -165,7 +165,7 @@ def _price_formation_blocks() -> tuple[BlockSpec, ...]:
         id="rubin_schennach_banking",
         label="Rubin/Schennach Banking Equilibrium",
         category="price_formation",
-        doc="solvers/banking.py:solve_banking_path",
+        doc="features/banking/solver.py:solve_banking_path",
         feature="banking",
         params=(
             ParamSpec(
@@ -185,7 +185,7 @@ def _price_formation_blocks() -> tuple[BlockSpec, ...]:
         id="hotelling",
         label="Hotelling Exhaustible-Resource Path",
         category="price_formation",
-        doc="solvers/hotelling.py:solve_hotelling_path",
+        doc="features/hotelling/solver.py:solve_hotelling_path",
         feature="hotelling",
         params=(
             ParamSpec(
@@ -206,7 +206,7 @@ def _price_formation_blocks() -> tuple[BlockSpec, ...]:
         id="nash_cournot",
         label="Nash–Cournot",
         category="price_formation",
-        doc="solvers/nash.py:solve_nash_path",
+        doc="features/nash_cournot/solver.py:solve_nash_path",
         feature="nash_cournot",
         params=(
             ParamSpec(
@@ -229,7 +229,7 @@ def _price_formation_blocks() -> tuple[BlockSpec, ...]:
         id="forward_transmission",
         label="Forward Transmission (λ overlay)",
         category="price_formation",
-        doc="solvers/transmission.py:solve_transmission_path, blend_prices",
+        doc="features/transmission/solver.py:solve_transmission_path, blend_prices",
         feature="transmission",
         params=(
             ParamSpec(
@@ -260,7 +260,7 @@ def _policy_blocks() -> tuple[BlockSpec, ...]:
         id="msr_bank_threshold",
         label="MSR (bank threshold)",
         category="policy",
-        doc="solvers/msr.py:MSRState.apply",
+        doc="features/msr/state.py:MSRState.apply",
         feature="msr",
         params=(
             ParamSpec("msr_enabled", "msr_enabled", "scenario", "bool", True),
@@ -282,7 +282,7 @@ def _policy_blocks() -> tuple[BlockSpec, ...]:
         id="kmsr_decree",
         label="K-MSR Decree",
         category="policy",
-        doc="solvers/banking.py:_decree_msr_action",
+        doc="features/msr/decree.py:decree_msr_action",
         feature="msr",
         params=(
             ParamSpec("msr_enabled", "msr_enabled", "scenario", "bool", True),
@@ -305,7 +305,7 @@ def _policy_blocks() -> tuple[BlockSpec, ...]:
         id="ccr",
         label="Carbon Cap Rule (CCR)",
         category="policy",
-        doc="solvers/ccr.py:CCRState.cap_adjustment",
+        doc="features/ccr/state.py:CCRState.cap_adjustment",
         feature="ccr",
         params=(
             ParamSpec("ccr_enabled", "ccr_enabled", "scenario", "bool", True),
@@ -323,7 +323,7 @@ def _policy_blocks() -> tuple[BlockSpec, ...]:
         id="price_floor",
         label="Price Floor",
         category="policy",
-        doc="bound clamping in market/equilibrium.py",
+        doc="bound clamping in core/market/clearing.py",
         feature="price_controls",
         params=(
             ParamSpec("price_lower_bound", "price_lower_bound", "year", "float", 0.0, unit="currency/tCO2e"),
@@ -349,7 +349,7 @@ def _policy_blocks() -> tuple[BlockSpec, ...]:
         id="auction_reserve",
         label="Auction Reserve",
         category="policy",
-        doc="auction mechanics in market/equilibrium.py:solve_equilibrium",
+        doc="auction mechanics in core/market/clearing.py:solve_equilibrium",
         feature="price_controls",
         params=(
             ParamSpec("auction_reserve_price", "auction_reserve_price", "year", "float", 0.0, unit="currency/tCO2e"),
@@ -415,7 +415,7 @@ def _policy_blocks() -> tuple[BlockSpec, ...]:
         id="cbam",
         label="CBAM",
         category="policy",
-        doc="CBAM liability in market/results.py (diagnostics-only, F6)",
+        doc="CBAM liability in features/cbam/plugin.py reporters (diagnostics-only, F6)",
         feature="cbam",
         params=(
             ParamSpec("eua_price", "eua_price", "year", "float", 0.0, unit="currency/tCO2e"),
@@ -429,7 +429,7 @@ def _policy_blocks() -> tuple[BlockSpec, ...]:
         id="hoarding",
         label="Hoarding Inflow",
         category="policy",
-        doc="solvers/banking.py:_hoarding_inflow",
+        doc="features/hoarding/plugin.py:HoardingInflow",
         feature="hoarding",
         params=(
             ParamSpec(
@@ -453,7 +453,7 @@ def _expectations_blocks() -> tuple[BlockSpec, ...]:
         id="expectations",
         label="Expectations Rule",
         category="expectations",
-        doc="solvers/expectations.py:ExpectationSpec, derive_expected_prices",
+        doc="core/expectations.py:ExpectationSpec, derive_expected_prices",
         feature="core",
         params=(
             ParamSpec("expectation_rule", "expectation_rule", "year", "enum", "next_year_baseline", enum=_EXPECTATION_RULES),
@@ -465,7 +465,7 @@ def _expectations_blocks() -> tuple[BlockSpec, ...]:
         id="price_elastic_baseline",
         label="Price-Elastic Baseline (Option A)",
         category="expectations",
-        doc="participant/models.py:MarketParticipant.activity_multiplier",
+        doc="core/participant/models.py:MarketParticipant.activity_multiplier",
         feature="elastic_baseline",
         params=(
             ParamSpec("reference_carbon_price", "reference_carbon_price", "scenario", "float", 0.0, unit="currency/tCO2e"),
@@ -480,7 +480,7 @@ def _participant_blocks() -> tuple[BlockSpec, ...]:
         id="participant",
         label="Participant",
         category="participants",
-        doc="participant/models.py:MarketParticipant via build_participant",
+        doc="core/participant/models.py:MarketParticipant via build_participant",
         feature="core",
         params=(
             ParamSpec("name", "name", "participant", "str", "New Participant"),
@@ -518,7 +518,7 @@ def _participant_blocks() -> tuple[BlockSpec, ...]:
         id="technology_option",
         label="Technology Option",
         category="participants",
-        doc="participant/models.py:TechnologyOption via build_technology_option",
+        doc="core/participant/models.py:TechnologyOption via build_technology_option",
         feature="core",
         params=(
             ParamSpec("name", "name", "participant", "str", "New Technology"),

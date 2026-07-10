@@ -16,7 +16,7 @@ from ets.features.elastic_baseline.plugin import stamp_and_attach
 from ets.solvers import run_simulation_from_config, run_simulation_from_file
 
 EXAMPLE = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[3]
     / "examples"
     / "feedback_a_price_elastic_baseline.json"
 )

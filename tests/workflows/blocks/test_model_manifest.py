@@ -25,7 +25,7 @@ import pytest
 
 from ets.blocks import BLOCK_CATALOGUE, derive_manifest
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
+EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "examples"
 
 # Same exclusion as tests/test_blocks_decompile.py: these two carry a
 # request-payload document shape (`{"config": {...}, "sweeps"/"observed_prices": ...}`),

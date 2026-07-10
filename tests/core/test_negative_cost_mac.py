@@ -17,7 +17,7 @@ from ets.costs import piecewise_abatement_factory
 from ets.solvers import run_simulation_from_file
 
 KETS = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[2]
     / "examples"
     / "climate_solutions_k_ets_outlook.json"
 )

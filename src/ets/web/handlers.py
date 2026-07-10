@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from ..config import FRONTEND_DIST_DIR
+from ..core.paths import FRONTEND_DIST_DIR
 
 # Transport-free API functions moved to web/api.py (Order 3); re-imported
 # here so the ets.webapp shim surface stays byte-compatible.

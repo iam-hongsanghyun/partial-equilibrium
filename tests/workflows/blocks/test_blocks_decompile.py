@@ -27,7 +27,7 @@ import pytest
 from ets.blocks import compile_graph, graph_from_config
 from ets.config_io import normalize_config
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
+EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "examples"
 
 # These two carry a request-payload document shape, not a scenario config —
 # config_io.normalize_config cannot even parse them (no top-level "scenarios").

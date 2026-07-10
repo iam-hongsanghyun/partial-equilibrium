@@ -43,7 +43,7 @@ from ets.core.costs import linear_abatement_factory
 from ets.core.market import CarbonMarket
 from ets.core.participant import MarketParticipant
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES_DIR = REPO_ROOT / "examples"
 
 _PINNED_COLUMNS: dict[str, dict[str, list[str]]] = {
