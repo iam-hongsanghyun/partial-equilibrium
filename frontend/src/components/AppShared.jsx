@@ -2,24 +2,34 @@ import { useState as useS, useEffect as useE, useMemo as useM, useRef as useR } 
 import { fmt } from "./MarketChart.jsx";
 import { activeFeatureIds, collectSlot, FEATURES } from "../features/registry.js";
 
+// `feature` tags the metric-list / per-year attribute vocabulary with the
+// feature module that owns it (see frontend/src/features/registry.js and
+// ets/blocks/manifest.py, whose `derive_manifest` is the backend twin of
+// this table — every field below is tagged with exactly the feature its
+// backing block declares in ets/blocks/catalogue.py). `feature: null` means
+// core — always eligible regardless of which features a pe-scoped model's
+// manifest reports. Every surface that lists these metrics (BuildView's
+// "Market timeline" attribute picker, and nothing else today — see
+// visibleYearAttributeFields below) must filter through this table rather
+// than hardcoding a metric's availability.
 const SERIES_FIELD_META = {
-  total_cap: { label: "Total cap", unit: "Mt CO₂e", step: 1, min: 0, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Hard annual ceiling on covered emissions. All allowance buckets (free allocation, auction, reserved, cancelled) must sum to this." },
-  auction_offered: { label: "Auction offered", unit: "Mt CO₂e", step: 1, min: 0, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Volume offered at auction each year. Must not exceed total cap minus free allocation, reserved, and cancelled allowances." },
-  reserved_allowances: { label: "Reserved allowances", unit: "Mt CO₂e", step: 1, min: 0, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Allowances withheld from the market this year. They are not auctioned and do not contribute to supply." },
-  cancelled_allowances: { label: "Cancelled allowances", unit: "Mt CO₂e", step: 1, min: 0, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Allowances permanently retired from the cap. Reduces the effective supply permanently." },
-  auction_reserve_price: { label: "Auction reserve price", unit: "$/t", step: 1, min: 0, format: (value) => fmt.price(value), description: "Minimum price at which auction volume will clear. Offered allowances that cannot meet this price are treated as unsold." },
-  minimum_bid_coverage: { label: "Minimum bid coverage", unit: "%", displayScale: 100, step: 5, min: 0, max: 100, format: (value) => `${fmt.num(value, 0)}%`, description: "Minimum fraction of offered volume that must be covered by bids for the auction to clear. E.g. 80 means 80% of offered volume must be bid for." },
-  price_lower_bound: { label: "Price floor", unit: "$/t", step: 1, min: 0, format: (value) => fmt.price(value), description: "Equilibrium price cannot fall below this value. Models a minimum price guarantee or cost-containment mechanism." },
-  price_upper_bound: { label: "Price ceiling", unit: "$/t", step: 1, min: 0, format: (value) => fmt.price(value), description: "Equilibrium price is capped at this value. Models a safety valve or maximum price commitment." },
-  borrowing_limit: { label: "Borrowing limit", unit: "Mt CO₂e", step: 1, min: 0, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Maximum volume a participant may borrow from a future period's allocation to cover current compliance. Requires borrowing to be enabled." },
-  manual_expected_price: { label: "Manual expected price", unit: "$/t", step: 1, min: 0, format: (value) => fmt.price(value), description: "Overrides the expectation rule and sets the future carbon price assumption manually. Only active when expectation rule is set to Manual." },
-  carbon_budget: { label: "Carbon budget", unit: "Mt CO₂e", step: 1, min: 0, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Annual carbon budget for the Hotelling rule approach. The solver finds the shadow price λ such that cumulative residual emissions equal the cumulative budget across all years." },
-  eua_price: { label: "EUA price (external)", unit: "$/t", step: 1, min: 0, format: (value) => fmt.price(value), description: "EU ETS allowance price for this year (external input). Used to compute CBAM liability = max(0, EUA − KAU) × CBAM-exposed residual emissions." },
-  initial_emissions: { label: "Initial emissions", unit: "Mt CO₂e", step: 1, min: 0, format: (value) => fmt.num(value, 1), description: "Gross emissions before any abatement. This is the participant's baseline coverage obligation each year." },
-  free_allocation_ratio: { label: "Free allocation ratio", unit: "ratio 0–1", step: 0.05, min: 0, max: 1, format: (value) => fmt.num(value, 2), description: "Share of a participant's initial emissions covered by free allowances. 1.0 means fully covered for free; 0 means no free allocation." },
-  penalty_price: { label: "Penalty price", unit: "$/t", step: 1, min: 0, format: (value) => fmt.price(value), description: "Price paid per tonne of uncovered emissions when a participant exceeds their allowance holdings. Acts as a compliance ceiling." },
-  fixed_cost: { label: "Fixed cost", unit: "$", step: 1, min: 0, format: (value) => fmt.num(value, 0), description: "One-time adoption cost for a technology option. Paid in the year a participant switches to that technology." },
-  max_activity_share: { label: "Adoption share cap", unit: "ratio 0–1", step: 0.05, min: 0, max: 1, format: (value) => fmt.num(value, 2), description: "Maximum fraction of a participant's activity that can switch to this technology option in any given year." },
+  total_cap: { label: "Total cap", unit: "Mt CO₂e", step: 1, min: 0, feature: null, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Hard annual ceiling on covered emissions. All allowance buckets (free allocation, auction, reserved, cancelled) must sum to this." },
+  auction_offered: { label: "Auction offered", unit: "Mt CO₂e", step: 1, min: 0, feature: null, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Volume offered at auction each year. Must not exceed total cap minus free allocation, reserved, and cancelled allowances." },
+  reserved_allowances: { label: "Reserved allowances", unit: "Mt CO₂e", step: 1, min: 0, feature: null, format: (value) => `${fmt.num(value, 0)} Mt`, description: "Allowances withheld from the market this year. They are not auctioned and do not contribute to supply." },
+  cancelled_allowances: { label: "Cancelled allowances", unit: "Mt CO₂e", step: 1, min: 0, feature: "price_controls", format: (value) => `${fmt.num(value, 0)} Mt`, description: "Allowances permanently retired from the cap. Reduces the effective supply permanently." },
+  auction_reserve_price: { label: "Auction reserve price", unit: "$/t", step: 1, min: 0, feature: "price_controls", format: (value) => fmt.price(value), description: "Minimum price at which auction volume will clear. Offered allowances that cannot meet this price are treated as unsold." },
+  minimum_bid_coverage: { label: "Minimum bid coverage", unit: "%", displayScale: 100, step: 5, min: 0, max: 100, feature: "price_controls", format: (value) => `${fmt.num(value, 0)}%`, description: "Minimum fraction of offered volume that must be covered by bids for the auction to clear. E.g. 80 means 80% of offered volume must be bid for." },
+  price_lower_bound: { label: "Price floor", unit: "$/t", step: 1, min: 0, feature: "price_controls", format: (value) => fmt.price(value), description: "Equilibrium price cannot fall below this value. Models a minimum price guarantee or cost-containment mechanism." },
+  price_upper_bound: { label: "Price ceiling", unit: "$/t", step: 1, min: 0, feature: "price_controls", format: (value) => fmt.price(value), description: "Equilibrium price is capped at this value. Models a safety valve or maximum price commitment." },
+  borrowing_limit: { label: "Borrowing limit", unit: "Mt CO₂e", step: 1, min: 0, feature: "banking", format: (value) => `${fmt.num(value, 0)} Mt`, description: "Maximum volume a participant may borrow from a future period's allocation to cover current compliance. Requires borrowing to be enabled." },
+  manual_expected_price: { label: "Manual expected price", unit: "$/t", step: 1, min: 0, feature: null, format: (value) => fmt.price(value), description: "Overrides the expectation rule and sets the future carbon price assumption manually. Only active when expectation rule is set to Manual." },
+  carbon_budget: { label: "Carbon budget", unit: "Mt CO₂e", step: 1, min: 0, feature: "hotelling", format: (value) => `${fmt.num(value, 0)} Mt`, description: "Annual carbon budget for the Hotelling rule approach. The solver finds the shadow price λ such that cumulative residual emissions equal the cumulative budget across all years." },
+  eua_price: { label: "EUA price (external)", unit: "$/t", step: 1, min: 0, feature: "cbam", format: (value) => fmt.price(value), description: "EU ETS allowance price for this year (external input). Used to compute CBAM liability = max(0, EUA − KAU) × CBAM-exposed residual emissions." },
+  initial_emissions: { label: "Initial emissions", unit: "Mt CO₂e", step: 1, min: 0, feature: null, format: (value) => fmt.num(value, 1), description: "Gross emissions before any abatement. This is the participant's baseline coverage obligation each year." },
+  free_allocation_ratio: { label: "Free allocation ratio", unit: "ratio 0–1", step: 0.05, min: 0, max: 1, feature: null, format: (value) => fmt.num(value, 2), description: "Share of a participant's initial emissions covered by free allowances. 1.0 means fully covered for free; 0 means no free allocation." },
+  penalty_price: { label: "Penalty price", unit: "$/t", step: 1, min: 0, feature: null, format: (value) => fmt.price(value), description: "Price paid per tonne of uncovered emissions when a participant exceeds their allowance holdings. Acts as a compliance ceiling." },
+  fixed_cost: { label: "Fixed cost", unit: "$", step: 1, min: 0, feature: null, format: (value) => fmt.num(value, 0), description: "One-time adoption cost for a technology option. Paid in the year a participant switches to that technology." },
+  max_activity_share: { label: "Adoption share cap", unit: "ratio 0–1", step: 0.05, min: 0, max: 1, feature: null, format: (value) => fmt.num(value, 2), description: "Maximum fraction of a participant's activity that can switch to this technology option in any given year." },
 };
 
 function getSeriesFieldMeta(field) {
@@ -27,6 +37,7 @@ function getSeriesFieldMeta(field) {
     label: field.replaceAll("_", " "),
     step: 1,
     min: 0,
+    feature: null,
     format: (value) => fmt.num(value, 2),
   };
 }
@@ -87,6 +98,92 @@ function makeBlankYear(label = "2030") {
     eua_price_ensemble: {},
     participants: [],
   };
+}
+
+// ── PE-mode config-driven field visibility ──────────────────────────────
+// Owner rule (see repo history on branch feat/pe-scoping-sweep): in pe mode
+// a field renders only if the loaded model's config sets it away from its
+// backend default, or the user opted into the full field surface via the
+// "Show advanced settings" toggle. This mirrors how the backend's own
+// manifest derivation works — ets/blocks/decompile.py only synthesises a
+// block node (and therefore counts a feature as "in play") when a field's
+// value deviates from its ets/blocks/catalogue.py ParamSpec default across
+// ANY year — so `isYearAttributeConfigured` below applies the same
+// any-year-deviates rule the backend already uses. The unscoped (default)
+// shell never calls any of this — every call site is gated on
+// `enabledFeatures != null` (pe mode) at the caller.
+function valueDiffersFromDefault(value, defaultValue) {
+  if (Array.isArray(defaultValue)) {
+    return JSON.stringify(value ?? []) !== JSON.stringify(defaultValue);
+  }
+  if (defaultValue && typeof defaultValue === "object") {
+    return JSON.stringify(value ?? {}) !== JSON.stringify(defaultValue);
+  }
+  return (value ?? defaultValue) !== defaultValue;
+}
+
+// Backend mirror: ets/config_io/templates.py blank_year_config() (every key
+// below matches its Python default 1:1 — see normalize.py's normalize_year
+// for the same defaults applied when a key is absent from a loaded config).
+const YEAR_FIELD_DEFAULTS = makeBlankYear();
+
+function isYearAttributeConfigured(years, field) {
+  const fallback = YEAR_FIELD_DEFAULTS[field];
+  return (years || []).some((year) => valueDiffersFromDefault(year?.[field], fallback));
+}
+
+// Backend mirror: ets/config_io/builder.py normalize_scenario()'s `_fval`
+// defaults for the solver-tuning knobs — the only scenario-level fields any
+// pe-mode "Show advanced settings" gate currently needs (see Editor.jsx's
+// "Solver tuning" / "Market clearing" blocks and the hotelling/nash_cournot/
+// calibration feature modules' own tuning blocks).
+const PE_SOLVER_FIELD_DEFAULTS = {
+  solver_competitive_max_iters: 25,
+  solver_competitive_tolerance: 0.001,
+  solver_price_bracket_expand_factor: 2.0,
+  solver_price_bracket_max_expansions: 10,
+  solver_slsqp_max_iters: 400,
+  solver_slsqp_ftol: 1e-9,
+  solver_penalty_price_multiplier: 1.25,
+  solver_hotelling_max_bisection_iters: 80,
+  solver_hotelling_max_lambda_expansions: 20,
+  solver_hotelling_convergence_tol: 0.0001,
+  solver_hotelling_lambda_initial_low: 0.001,
+  solver_hotelling_lambda_initial_high: 20.0,
+  solver_hotelling_lambda_expand_factor: 3.0,
+  solver_nash_price_step: 0.5,
+  solver_nash_max_iters: 120,
+  solver_nash_convergence_tol: 0.001,
+  solver_nash_inner_xatol: 1e-4,
+  solver_calibration_xatol: 0.1,
+  solver_calibration_fatol: 0.01,
+};
+
+function isScenarioFieldConfigured(scenario, field) {
+  return valueDiffersFromDefault(scenario?.[field], PE_SOLVER_FIELD_DEFAULTS[field]);
+}
+
+// A "Solver tuning"-style subsection (several scenario-level fields grouped
+// under one heading) counts as configured if ANY field in it deviates —
+// see the owner's exception: "a model that ships custom solver settings
+// must not hide them silently."
+function isScenarioSectionConfigured(scenario, fields) {
+  return fields.some((field) => isScenarioFieldConfigured(scenario, field));
+}
+
+// The metric-list candidate fields (BuildView's "Market timeline" attribute
+// picker — the one and only surface that lists these as a pickable set; see
+// frontend/src/components/AppViews.jsx). Filters each candidate through
+// SERIES_FIELD_META's feature tag, then — in pe mode, unless the user has
+// revealed the full surface — through isYearAttributeConfigured.
+function visibleYearAttributeFields(fields, { enabledFeatures, years, showAdvanced }) {
+  if (enabledFeatures == null) return fields;
+  const active = activeFeatureIds(enabledFeatures);
+  return fields.filter((field) => {
+    const meta = getSeriesFieldMeta(field);
+    if (meta.feature && !active.includes(meta.feature)) return false;
+    return showAdvanced || isYearAttributeConfigured(years, field);
+  });
 }
 
 // Core scenario skeleton. Feature-owned defaults (msr_*, ccr_*, sectors,
@@ -535,6 +632,12 @@ function Header({
   onRemoveScenario,
   status,
   showGuideTab = true,
+  // pe mode locks the shell to the model chosen on the welcome page — "Back
+  // to models" (frontend/src/pe/PeApp.jsx's ModelToolbar) is the only way to
+  // switch models, so the in-editor template splice control is hidden here.
+  // Save/Add/Duplicate/Remove stay: they operate within the current model,
+  // not across models. Unscoped (default) shell: unchanged, always shown.
+  hideLoadTemplate = false,
 }) {
   const [selectedTemplate, setSelectedTemplate] = useS(templates?.[0]?.id || "blank");
   const sections = [
@@ -583,10 +686,14 @@ function Header({
       </div>
       {activeSection === "build" && (
         <div className="hdr-tools">
-          <select value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)}>
-            {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-          </select>
-          <button className="ghost-btn" onClick={() => onLoadTemplate(selectedTemplate)}>Load template</button>
+          {!hideLoadTemplate && (
+            <>
+              <select value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)}>
+                {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+              <button className="ghost-btn" onClick={() => onLoadTemplate(selectedTemplate)}>Load template</button>
+            </>
+          )}
           <button className="ghost-btn" onClick={onSaveScenario}>Save scenario</button>
           <button className="ghost-btn" onClick={onAddScenario}>Add scenario</button>
           <button className="ghost-btn" onClick={onDuplicateScenario}>Duplicate scenario</button>
@@ -1151,4 +1258,9 @@ export {
   TooltipButton,
   slugify,
   getSeriesFieldMeta,
+  valueDiffersFromDefault,
+  isYearAttributeConfigured,
+  isScenarioFieldConfigured,
+  isScenarioSectionConfigured,
+  visibleYearAttributeFields,
   };

@@ -20,15 +20,38 @@ import {
   buildTechnologyPathway,
   describeUnsoldTreatment,
   getSeriesFieldMeta,
+  visibleYearAttributeFields,
   TooltipButton,
 } from "./AppShared.jsx";
 import { activeFeatureIds, collectSlot, FEATURES } from "../features/registry.js";
+
+// The full year-attribute candidate list for the "Market timeline" metric
+// picker. Unscoped (default) shell: shown in full, unchanged, in this exact
+// order. Pe mode: filtered through visibleYearAttributeFields (feature tag
+// + config-driven "did this model's config actually set it" — see
+// AppShared.jsx) unless "Show advanced settings" is on.
+const YEAR_SERIES_FIELDS = [
+  "total_cap",
+  "auction_offered",
+  "carbon_budget",
+  "reserved_allowances",
+  "cancelled_allowances",
+  "auction_reserve_price",
+  "minimum_bid_coverage",
+  "price_lower_bound",
+  "price_upper_bound",
+  "borrowing_limit",
+  "manual_expected_price",
+  "eua_price",
+];
 
 function BuildView({
   scenario, yearObj, activeYear, onYearChange, addYear, removeYear,
   onRunBase, onRunEdited, onRunAll, hasEditedChanges, onSave, onUpdateYearSeries, navigationTarget,
   enabledFeatures = null, manifest = null,
 }) {
+  const peMode = enabledFeatures != null;
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedSeriesField, setSelectedSeriesField] = useState("total_cap");
   const [generatorRule, setGeneratorRule] = useState("linear");
   const [generatorStart, setGeneratorStart] = useState(0);
@@ -37,20 +60,13 @@ function BuildView({
   const [percentRate, setPercentRate] = useState(5);
   const [applyStartYear, setApplyStartYear] = useState("");
   const [applyEndYear, setApplyEndYear] = useState("");
-  const seriesFields = [
-    "total_cap",
-    "auction_offered",
-    "carbon_budget",
-    "reserved_allowances",
-    "cancelled_allowances",
-    "auction_reserve_price",
-    "minimum_bid_coverage",
-    "price_lower_bound",
-    "price_upper_bound",
-    "borrowing_limit",
-    "manual_expected_price",
-    "eua_price",
-  ];
+  const seriesFields = useMemo(
+    () =>
+      peMode
+        ? visibleYearAttributeFields(YEAR_SERIES_FIELDS, { enabledFeatures, years: scenario.years, showAdvanced })
+        : YEAR_SERIES_FIELDS,
+    [peMode, enabledFeatures, scenario.years, showAdvanced]
+  );
   const selectedMeta = getSeriesFieldMeta(selectedSeriesField);
   const orderedYears = useMemo(() => (scenario.years || []).map((year) => String(year.year)), [scenario.years]);
   const seriesDraft = useMemo(
@@ -63,10 +79,10 @@ function BuildView({
     [scenario.years, selectedSeriesField]
   );
   useEffect(() => {
-    if (!seriesFields.includes(selectedSeriesField)) {
+    if (seriesFields.length && !seriesFields.includes(selectedSeriesField)) {
       setSelectedSeriesField(seriesFields[0]);
     }
-  }, [selectedSeriesField]);
+  }, [seriesFields, selectedSeriesField]);
   useEffect(() => {
     const scale = getSeriesFieldMeta(selectedSeriesField).displayScale || 1;
     const firstYear = scenario.years?.[0];
@@ -120,7 +136,24 @@ function BuildView({
             <h2>Review values across years</h2>
             <p className="muted">Select a market attribute on the left, then edit it directly on the chart. The pathway setup controls are embedded on the right so you can generate and refine without opening a popup.</p>
           </div>
+          {peMode && (
+            <div className="toggles">
+              <button
+                type="button"
+                className={"toggle " + (showAdvanced ? "on" : "")}
+                onClick={() => setShowAdvanced((value) => !value)}
+              >
+                {showAdvanced ? "Hide advanced settings" : "Show advanced settings"}
+              </button>
+            </div>
+          )}
         </div>
+        {!seriesFields.length ? (
+          <div className="builder-empty">
+            This model has not configured any market attributes beyond their defaults yet.
+            Turn on "Show advanced settings" to reveal the full attribute list and start editing.
+          </div>
+        ) : (
         <div className="timeline-workbench">
           <div className="timeline-field-list">
             {seriesFields.map((field) => {
@@ -247,6 +280,7 @@ function BuildView({
             </div>
           </div>
         </div>
+        )}
       </section>
       <section className="panel">
         <div className="panel-head">
@@ -265,6 +299,7 @@ function BuildView({
           onSelectYear={onYearChange}
           navigationTarget={navigationTarget}
           enabledFeatures={enabledFeatures}
+          showAdvanced={showAdvanced}
           manifest={manifest}
         />
       </section>

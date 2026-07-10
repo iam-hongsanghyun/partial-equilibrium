@@ -427,6 +427,7 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
             onSaveScenario={saveActiveScenarioToLibrary}
             status={status}
             showGuideTab={showGuideTab}
+            hideLoadTemplate={enabledFeatures != null}
           />
           <GuideView enabledFeatures={enabledFeatures} />
         </div>
@@ -451,6 +452,7 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
         onSaveScenario={saveActiveScenarioToLibrary}
         status={status}
         showGuideTab={showGuideTab}
+        hideLoadTemplate={enabledFeatures != null}
       />
 
       {serverWarnings.length > 0 && (
