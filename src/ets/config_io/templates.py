@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..solvers.msr import MSR_DEFAULTS
-from ..solvers.ccr import CCR_DEFAULTS
+from ..core.defaults import MSR_DEFAULTS, CCR_DEFAULTS
 
 
 def blank_config() -> dict[str, Any]:

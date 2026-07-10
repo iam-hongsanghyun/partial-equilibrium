@@ -32,10 +32,10 @@ import logging
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-from ..market import CarbonMarket
+from ..core.market import CarbonMarket
 from .msr import MSRState
 from .simulation import _simulate_path_details
-from .expectations import build_expectation_specs, derive_expected_prices
+from ..core.expectations import build_expectation_specs, derive_expected_prices
 
 logger = logging.getLogger(__name__)
 

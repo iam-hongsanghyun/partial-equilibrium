@@ -1,8 +1,8 @@
-# Backward-compatibility shim — re-exports from solvers.expectations.
-# New location: src/ets/solvers/expectations.py.
+# Backward-compatibility shim — re-exports from core.expectations.
+# New location: src/ets/core/expectations.py.
 import warnings
 
-from .solvers.expectations import (
+from .core.expectations import (
     ALLOWED_EXPECTATION_RULES,
     ExpectationSpec,
     expectation_sort_key,
@@ -12,7 +12,7 @@ from .solvers.expectations import (
 )
 
 warnings.warn(
-    "ets.expectations is deprecated; import from ets.solvers.expectations instead. "
+    "ets.expectations is deprecated; import from ets.core.expectations instead. "
     "Removal milestone: after the frontend migrates to the graph API (v2.0).",
     DeprecationWarning,
     stacklevel=2,

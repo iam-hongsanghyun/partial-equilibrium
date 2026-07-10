@@ -67,7 +67,7 @@ import logging
 from copy import deepcopy
 from typing import Any
 
-from ..market import CarbonMarket
+from ..core.market import CarbonMarket
 
 logger = logging.getLogger(__name__)
 

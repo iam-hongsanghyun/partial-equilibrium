@@ -92,20 +92,20 @@ import logging
 
 from scipy.optimize import brentq
 
-from ..market import CarbonMarket
-from ..market.equilibrium import total_net_demand
+from ..core.defaults import (
+    BANKING_DEFAULTS,
+    DECREE_MSR_MAX_INTAKE_MT,
+    DECREE_MSR_MAX_RELEASE_MT,
+    DECREE_MSR_PRICE_BAND_HIGH,
+    DECREE_MSR_PRICE_BAND_LOW,
+    DECREE_MSR_SURPLUS_LOWER_RATIO,
+    DECREE_MSR_SURPLUS_UPPER_RATIO,
+)
+from ..core.market import CarbonMarket
+from ..core.market.clearing import total_net_demand
 from .msr import MSRState
 
 logger = logging.getLogger(__name__)
-
-# Solver defaults (overridable via scenario config fields of the same name).
-BANKING_DEFAULTS = {
-    "banking_initial_bank": 0.0,       # Mt CO2e carried into the first year
-    "banking_strict_no_arbitrage": True,
-    "banking_bank_tolerance": 1e-6,    # Mt; interior bank >= -tol
-    "banking_supply_rule_max_iters": 25,
-    "banking_supply_rule_tolerance": 1e-3,  # Mt; schedule fixed-point tol
-}
 
 
 def _free_allocation_total(market: CarbonMarket) -> float:
@@ -412,12 +412,12 @@ def _decree_msr_action(
     if prev_price is None or prev_surplus_ratio is None:
         return 0.0, 0.0
 
-    high = float(getattr(market, "msr_price_band_high", 25_000.0))
-    low = float(getattr(market, "msr_price_band_low", 15_000.0))
-    upper = float(getattr(market, "msr_surplus_upper_ratio", 0.18))
-    lower = float(getattr(market, "msr_surplus_lower_ratio", 0.05))
-    max_intake = float(getattr(market, "msr_max_intake_mt", 20.0))
-    max_release = float(getattr(market, "msr_max_release_mt", 20.0))
+    high = float(getattr(market, "msr_price_band_high", DECREE_MSR_PRICE_BAND_HIGH))
+    low = float(getattr(market, "msr_price_band_low", DECREE_MSR_PRICE_BAND_LOW))
+    upper = float(getattr(market, "msr_surplus_upper_ratio", DECREE_MSR_SURPLUS_UPPER_RATIO))
+    lower = float(getattr(market, "msr_surplus_lower_ratio", DECREE_MSR_SURPLUS_LOWER_RATIO))
+    max_intake = float(getattr(market, "msr_max_intake_mt", DECREE_MSR_MAX_INTAKE_MT))
+    max_release = float(getattr(market, "msr_max_release_mt", DECREE_MSR_MAX_RELEASE_MT))
 
     def price_signal() -> int:  # +1 release, -1 intake, 0 neutral
         if prev_price >= high:

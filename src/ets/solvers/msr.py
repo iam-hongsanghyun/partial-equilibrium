@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import logging
 
+# Moved to core.defaults (O1); re-exported so this module's surface is unchanged.
+from ..core.defaults import MSR_DEFAULTS  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,17 +93,3 @@ class MSRState:
 
         effective_auction = max(0.0, auction_offered - withheld + released)
         return effective_auction, withheld, released
-
-
-# ── Default parameter set (K-ETS calibrated) ─────────────────────────────────
-# These are scenario-level defaults; users can override via solver settings.
-
-MSR_DEFAULTS = {
-    "msr_enabled": False,
-    "msr_upper_threshold": 200.0,   # Mt CO₂e — bank above which withholding triggers
-    "msr_lower_threshold": 50.0,    # Mt CO₂e — bank below which release triggers
-    "msr_withhold_rate": 0.12,      # 12% of auction_offered withheld per year
-    "msr_release_rate": 50.0,       # Mt released per year when bank is low
-    "msr_cancel_excess": False,     # whether to permanently cancel pool surplus
-    "msr_cancel_threshold": 400.0,  # Mt CO₂e — pool above this is cancelled
-}

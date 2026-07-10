@@ -81,19 +81,26 @@ _STDLIB_MODULES = frozenset(sys.stdlib_module_names)
 # `ets.costs`, which are still *real* modules today (not yet re-export
 # shims) but are pre-registered here because O1/O2 convert them into shims
 # without changing their dotted name — keeping the constant ahead of the
-# migration avoids a two-line diff later. Append `ets.solvers.*`,
-# `ets.market.*`, `ets.participant.*` here once those packages themselves
-# become shims (O8+).
+# migration avoids a two-line diff later. Append `ets.solvers.*` here once
+# that package itself becomes a shim (O8+). `ets.participant.*` became a
+# shim package in O2; `ets.market.*` in O3; `ets.solvers.expectations` in O4.
 SHIM_MODULES: frozenset[str] = frozenset(
     {
         "ets.simulation",
+        "ets.solvers.expectations",
         "ets.market",
+        "ets.market.core",
+        "ets.market.equilibrium",
+        "ets.market.results",
         "ets.msr",
         "ets.ccr",
         "ets.hotelling",
         "ets.nash",
         "ets.expectations",
         "ets.participant",
+        "ets.participant.models",
+        "ets.participant.compliance",
+        "ets.participant.technology",
         "ets.scenarios",
         "ets.server",
         "ets.webapp",
@@ -111,19 +118,6 @@ _T4_GROUPS: frozenset[str] = frozenset({"analysis", "coupling", "blocks"})
 # fails `test_pending_violations_allowlist_has_no_stale_entries`, so this
 # dict can only shrink. Target state (O14): empty.
 PENDING_VIOLATIONS: dict[tuple[str, str], str] = {
-    # (e) config_io imports only core: templates.py pulls MSR/CCR defaults
-    # straight out of the solvers — killed when O1 moves the shared
-    # defaults into core.defaults.
-    ("ets.config_io.templates", "ets.solvers.msr"): "O1",
-    ("ets.config_io.templates", "ets.solvers.ccr"): "O1",
-    # (e) config_io/normalize.py derives expected-price defaults from the
-    # solver — killed when O4 moves expectations into core.
-    ("ets.config_io.normalize", "ets.solvers.expectations"): "O4",
-    # (e) config_io/builder.py builds participant objects directly —
-    # killed once costs/participant/market move into core (O2, O3).
-    ("ets.config_io.builder", "ets.costs"): "O2",
-    ("ets.config_io.builder", "ets.participant"): "O2",
-    ("ets.config_io.builder", "ets.market"): "O3",
     # (g) coupling/loop.py drives the solver package directly — killed when
     # O8 rewires coupling onto ets.engine.
     ("ets.coupling.loop", "ets.solvers"): "O8",

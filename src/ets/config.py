@@ -1,22 +1,31 @@
-from __future__ import annotations
+# Backward-compatibility shim — re-exports from core.paths.
+# New location: src/ets/core/paths.py.
+# Importing this module runs core.paths, which performs the MPLCONFIGDIR
+# os.environ.setdefault side effect exactly as before the move.
+# DeprecationWarning arms in O13 (milestone 0.3.0), once the remaining
+# internal importers (cli.py, web/*) are rewritten — see
+# docs/feature-modules-plan.md §4.
 
-import os
-import tempfile
-from pathlib import Path
+from .core.paths import (
+    PROJECT_DIR,
+    SRC_DIR,
+    FRONTEND_DIR,
+    FRONTEND_DIST_DIR,
+    EXAMPLES_DIR,
+    DOCS_DIR,
+    SERVERLESS_ROOT,
+    MPLCONFIG_DIR,
+    USER_SCENARIOS_DIR,
+)
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-SRC_DIR = PROJECT_DIR / "src"
-FRONTEND_DIR = PROJECT_DIR / "frontend"
-FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
-EXAMPLES_DIR = PROJECT_DIR / "examples"
-DOCS_DIR = PROJECT_DIR / "docs"
-SERVERLESS_ROOT = Path(tempfile.gettempdir()) / "ets_runtime"
-
-if os.environ.get("VERCEL"):
-    MPLCONFIG_DIR = SERVERLESS_ROOT / ".mplconfig"
-    USER_SCENARIOS_DIR = SERVERLESS_ROOT / "user-scenarios"
-else:
-    MPLCONFIG_DIR = PROJECT_DIR / ".mplconfig"
-    USER_SCENARIOS_DIR = PROJECT_DIR / "user-scenarios"
-
-os.environ.setdefault("MPLCONFIGDIR", str(MPLCONFIG_DIR))
+__all__ = [
+    "PROJECT_DIR",
+    "SRC_DIR",
+    "FRONTEND_DIR",
+    "FRONTEND_DIST_DIR",
+    "EXAMPLES_DIR",
+    "DOCS_DIR",
+    "SERVERLESS_ROOT",
+    "MPLCONFIG_DIR",
+    "USER_SCENARIOS_DIR",
+]

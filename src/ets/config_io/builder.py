@@ -5,9 +5,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from ..costs import linear_abatement_factory, piecewise_abatement_factory
-from ..market import CarbonMarket
-from ..participant import MarketParticipant, TechnologyOption
+from ..core.costs import linear_abatement_factory, piecewise_abatement_factory
+from ..core.participant import MarketParticipant, TechnologyOption
+from ..core.market import CarbonMarket
 from .normalize import (
     ALLOWED_MODEL_APPROACHES,
     normalize_participant,

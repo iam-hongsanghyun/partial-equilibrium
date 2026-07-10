@@ -1,20 +1,14 @@
-from __future__ import annotations
+# Backward-compatibility shim — re-exports from core.participant.technology.
+# New location: src/ets/core/participant/technology.py.
+# DeprecationWarning arms in O13 (milestone 0.3.0) — see
+# docs/feature-modules-plan.md §4.
 
-from .models import MarketParticipant, TechnologyOption
+from ..core.participant.technology import (
+    _default_technology,
+    _available_technologies,
+)
 
-
-def _default_technology(participant: MarketParticipant) -> TechnologyOption:
-    return TechnologyOption(
-        name="Base Technology",
-        initial_emissions=participant.initial_emissions,
-        free_allocation_ratio=participant.free_allocation_ratio,
-        penalty_price=participant.penalty_price,
-        marginal_abatement_cost=participant.marginal_abatement_cost,
-        max_abatement_share=participant.max_abatement_share,
-        max_activity_share=1.0,
-        fixed_cost=0.0,
-    )
-
-
-def _available_technologies(participant: MarketParticipant) -> list[TechnologyOption]:
-    return participant.technology_options or [_default_technology(participant)]
+__all__ = [
+    "_default_technology",
+    "_available_technologies",
+]

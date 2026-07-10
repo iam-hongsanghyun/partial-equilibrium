@@ -74,6 +74,9 @@ from __future__ import annotations
 
 import logging
 
+# Moved to core.defaults (O1); re-exported so this module's surface is unchanged.
+from ..core.defaults import CCR_DEFAULTS  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 
@@ -165,19 +168,3 @@ class CCRState:
         """Store realised period-t aggregates for use as period-(t+1) signals."""
         self.prev_emissions = float(emissions)
         self.prev_abatement_cost = float(abatement_cost)
-
-
-# ── Default parameter set ────────────────────────────────────────────────────
-# Scenario-level defaults. All values are user-overridable via scenario config.
-# Defaults leave the CCR disabled and neutral (no adjustment); the paper's
-# optimal coefficients are intentionally NOT hardcoded here because they are in
-# the paper's normalised units and must be calibrated to each scenario's cap
-# scale (see the example scenario and docs/carbon-cap-rule.md).
-
-CCR_DEFAULTS = {
-    "ccr_enabled": False,
-    "ccr_phi_emissions": 0.0,          # φ_e — Mt cap change per unit emissions gap (paper-optimal sign: negative)
-    "ccr_phi_abatement_cost": 0.0,     # φ_z — Mt cap change per unit abatement-cost gap (paper-optimal sign: positive)
-    "ccr_reference_emissions": 0.0,    # ē  — reference emissions [Mt CO2e]; 0 disables the emissions term
-    "ccr_reference_abatement_cost": 0.0,  # z̄ — reference abatement cost; 0 disables the cost term
-}

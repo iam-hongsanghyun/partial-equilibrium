@@ -34,7 +34,7 @@ from copy import deepcopy
 
 import pandas as pd
 
-from .expectations import build_expectation_specs, derive_expected_prices
+from ..core.expectations import build_expectation_specs, derive_expected_prices
 
 logger = logging.getLogger(__name__)
 

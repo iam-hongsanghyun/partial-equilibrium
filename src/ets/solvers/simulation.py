@@ -7,12 +7,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from .expectations import (
+from ..core.expectations import (
     build_expectation_specs,
     derive_expected_prices,
     expectation_sort_key,
 )
-from ..market import CarbonMarket
+from ..core.defaults import MSR_DEFAULTS
+from ..core.market import CarbonMarket
 from .msr import MSRState
 from .ccr import CCRState
 from ..config_io import build_markets_from_config, load_config
@@ -158,12 +159,22 @@ def _simulate_path_details(
             _, msr_withheld, msr_released = msr_state.apply(
                 total_bank=total_bank,
                 auction_offered=market.auction_offered,
-                upper_threshold=float(getattr(market, "msr_upper_threshold", 200.0)),
-                lower_threshold=float(getattr(market, "msr_lower_threshold", 50.0)),
-                withhold_rate=float(getattr(market, "msr_withhold_rate", 0.12)),
-                release_rate=float(getattr(market, "msr_release_rate", 50.0)),
+                upper_threshold=float(
+                    getattr(market, "msr_upper_threshold", MSR_DEFAULTS["msr_upper_threshold"])
+                ),
+                lower_threshold=float(
+                    getattr(market, "msr_lower_threshold", MSR_DEFAULTS["msr_lower_threshold"])
+                ),
+                withhold_rate=float(
+                    getattr(market, "msr_withhold_rate", MSR_DEFAULTS["msr_withhold_rate"])
+                ),
+                release_rate=float(
+                    getattr(market, "msr_release_rate", MSR_DEFAULTS["msr_release_rate"])
+                ),
                 cancel_excess=bool(getattr(market, "msr_cancel_excess", False)),
-                cancel_threshold=float(getattr(market, "msr_cancel_threshold", 400.0)),
+                cancel_threshold=float(
+                    getattr(market, "msr_cancel_threshold", MSR_DEFAULTS["msr_cancel_threshold"])
+                ),
                 year_label=str(market.year),
             )
             msr_pool = msr_state.reserve_pool
