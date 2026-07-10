@@ -84,26 +84,38 @@ unsold-volume cancellation) depend on the solved path, so the solver iterates:
 solve path → recompute the rules' supply schedule from the new bank/prices →
 re-solve, until the schedule is stable (see ``solve_banking_path``). Rules
 read only beginning-of-year state (previous bank), never same-year outcomes.
+
+Since work order O6 the MSR rules are INJECTED as ``SupplyRuleFactory``
+objects (``ets.core.protocols``): a fresh rule instance is constructed at the
+top of every schedule evaluation, keeping evaluations pure across fixed-point
+iterations and solver invocations while the rule stays stateful across years
+within one evaluation. The rules live in ``solvers/msr.py``
+(``DecreeSupplyRule``, ``ThresholdMSRSupplyRule``); the floor-cancellation
+step remains banking-owned (F4 — evaluation timing inside the fixed point is
+part of the equilibrium definition, not an implementation detail).
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from scipy.optimize import brentq
 
-from ..core.defaults import (
-    BANKING_DEFAULTS,
-    DECREE_MSR_MAX_INTAKE_MT,
-    DECREE_MSR_MAX_RELEASE_MT,
-    DECREE_MSR_PRICE_BAND_HIGH,
-    DECREE_MSR_PRICE_BAND_LOW,
-    DECREE_MSR_SURPLUS_LOWER_RATIO,
-    DECREE_MSR_SURPLUS_UPPER_RATIO,
-)
+from ..core.defaults import BANKING_DEFAULTS
 from ..core.market import CarbonMarket
 from ..core.market.clearing import total_net_demand
-from .msr import MSRState
+from ..core.protocols import Observables, SupplyRule, SupplyRuleFactory
+
+# The decree action and both MSR supply rules moved to solvers/msr.py in O6
+# (supply-rule injection); _decree_msr_action and MSRState are re-exported so
+# this module's surface is unchanged until solvers/* becomes a shim (O8).
+from .msr import (  # noqa: F401
+    DecreeSupplyRule,
+    MSRState,
+    ThresholdMSRSupplyRule,
+    _decree_msr_action,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -370,89 +382,12 @@ def solve_banking_window(
     return static, None
 
 
-def _decree_msr_action(
-    market: CarbonMarket,
-    mode: str,
-    prev_price: float | None,
-    prev_surplus_ratio: float | None,
-    reserve_stock: float,
-) -> tuple[float, float]:
-    r"""K-MSR draft-decree action for one year: (intake, release) in Mt.
-
-    Ports the decree parameterization published in the PLANiT K-ETS Outlook
-    dashboard (kets-outlook ``src/lib/msr.ts``, K-ETS MSR policy: Phase-4
-    reserve 85.277 Mt, price band 15,000–25,000 KRW, surplus-ratio band
-    5 %–18 %, max intake/release 20 Mt/yr) and matching the K-MSR paper's P1
-    ("absorb above a trigger, release 20 Mt/yr thereafter, no cancellation").
-
-    Algorithm:
-        ASCII: price signal   — prev_price >= high → release;
-                                 prev_price <= low  → intake
-               surplus signal — prev_surplus >= upper ratio → intake;
-                                 prev_surplus <= lower ratio → release
-               mode price_band / surplus_rule uses its own signal;
-               hybrid takes the majority of the two signals (ties → neutral);
-               release is capped by the reserve stock, intake by max_intake.
-
-    Both signals read PREVIOUS-year state (the decree acts on observed
-    outcomes); the first year is always neutral.
-
-    Args:
-        market: The year's market (carries the ``msr_*`` decree fields).
-        mode: ``"price_band"`` | ``"surplus_rule"`` | ``"hybrid"``.
-        prev_price: Previous year's solved price [currency/tCO2]; None in the
-            first year.
-        prev_surplus_ratio: Previous end-of-year bank over previous residual
-            emissions [dimensionless]; None in the first year.
-        reserve_stock: Reserve stock at the start of the year [Mt CO2e].
-
-    Returns:
-        ``(intake, release)`` in Mt CO2e; at most one is non-zero.
-    """
-    if prev_price is None or prev_surplus_ratio is None:
-        return 0.0, 0.0
-
-    high = float(getattr(market, "msr_price_band_high", DECREE_MSR_PRICE_BAND_HIGH))
-    low = float(getattr(market, "msr_price_band_low", DECREE_MSR_PRICE_BAND_LOW))
-    upper = float(getattr(market, "msr_surplus_upper_ratio", DECREE_MSR_SURPLUS_UPPER_RATIO))
-    lower = float(getattr(market, "msr_surplus_lower_ratio", DECREE_MSR_SURPLUS_LOWER_RATIO))
-    max_intake = float(getattr(market, "msr_max_intake_mt", DECREE_MSR_MAX_INTAKE_MT))
-    max_release = float(getattr(market, "msr_max_release_mt", DECREE_MSR_MAX_RELEASE_MT))
-
-    def price_signal() -> int:  # +1 release, -1 intake, 0 neutral
-        if prev_price >= high:
-            return 1
-        if prev_price <= low:
-            return -1
-        return 0
-
-    def surplus_signal() -> int:
-        if prev_surplus_ratio <= lower:
-            return 1
-        if prev_surplus_ratio >= upper:
-            return -1
-        return 0
-
-    if mode == "price_band":
-        signal = price_signal()
-    elif mode == "surplus_rule":
-        signal = surplus_signal()
-    else:  # hybrid: majority of the two signals, ties neutral
-        total = price_signal() + surplus_signal()
-        signal = 0 if total == 0 else (1 if total > 0 else -1)
-
-    if signal > 0:
-        return 0.0, min(max_release, max(0.0, reserve_stock))
-    if signal < 0:
-        return max_intake, 0.0
-    return 0.0, 0.0
-
-
 def _supply_schedule(
     markets: list[CarbonMarket],
     prices: list[float],
     bank: list[float],
     initial_bank: float,
+    supply_rule_factories: Sequence[SupplyRuleFactory],
 ) -> tuple[list[float], list[dict[str, float]]]:
     """Recompute per-year supply from bank-/price-triggered rules.
 
@@ -463,7 +398,28 @@ def _supply_schedule(
          auction sells only the demand at the floor; unsold volume is removed
          from circulating supply when ``unsold_treatment == "cancel"``.
 
-    Returns the adjusted supply schedule and per-year diagnostics.
+    The MSR step is an injected ``SupplyRule`` (work order O6): every rule is
+    constructed FRESH from its factory at the top of each evaluation, so a
+    schedule evaluation is a pure function of ``(prices, bank)`` — the same
+    inputs give the same schedule regardless of how many fixed-point
+    iterations preceded it (lifecycle doctrine, ``ets.core.protocols``). The
+    HOST computes the lagged ``Observables`` (beginning-of-year bank,
+    previous solved price, previous surplus ratio via
+    ``_residual_emissions``) and each rule returns the year's REPLACEMENT
+    circulating supply. The floor-cancellation step stays banking-owned this
+    order (it moves to price_controls at O10) and is evaluated AFTER the MSR
+    adjustment, on the MSR-adjusted supply.
+
+    Args:
+        markets: Markets sorted chronologically.
+        prices: Previous iterate's solved price path [currency/tCO2].
+        bank: Previous iterate's end-of-year aggregate bank path [Mt CO2e].
+        initial_bank: Bank carried into the first year [Mt CO2e].
+        supply_rule_factories: Zero-argument constructors of fresh
+            ``SupplyRule`` instances, applied per year in list order.
+
+    Returns:
+        The adjusted supply schedule and per-year diagnostics.
     """
     n = len(markets)
     supplies = [_circulating_supply(m) for m in markets]
@@ -473,26 +429,15 @@ def _supply_schedule(
         for _ in range(n)
     ]
 
-    m0 = markets[0]
-    msr_enabled = bool(getattr(m0, "msr_enabled", False))
-    msr_mode = str(getattr(m0, "msr_mode", "bank_threshold") or "bank_threshold")
-    msr_state = MSRState() if (msr_enabled and msr_mode == "bank_threshold") else None
-    decree_reserve = float(getattr(m0, "msr_initial_reserve_mt", 0.0) or 0.0)
-
-    msr_start = float(getattr(m0, "msr_start_year", 0.0) or 0.0)
-
-    def _msr_active(market: CarbonMarket) -> bool:
-        try:
-            return float(str(market.year)) >= msr_start
-        except (TypeError, ValueError):
-            return True  # non-numeric year labels: rule active
+    # Fresh rule instances per schedule evaluation — never reused across
+    # fixed-point iterations or solver invocations (ets.core.protocols).
+    rules: list[SupplyRule] = [factory() for factory in supply_rule_factories]
 
     for t, market in enumerate(markets):
-        if msr_enabled and msr_mode != "bank_threshold" and _msr_active(market):
+        if rules:
             begin_bank = initial_bank if t == 0 else bank[t - 1]
-            intake, release = _decree_msr_action(
-                market=market,
-                mode=msr_mode,
+            obs = Observables(
+                begin_bank=begin_bank,
                 prev_price=prices[t - 1] if t > 0 else None,
                 prev_surplus_ratio=(
                     begin_bank
@@ -500,35 +445,11 @@ def _supply_schedule(
                     if t > 0
                     else None
                 ),
-                reserve_stock=decree_reserve,
-            )
-            decree_reserve += intake - release
-            supplies[t] = (
-                _free_allocation_total(market)
-                + float(market.auction_offered)
-                - intake
-                + release
-            )
-            diags[t]["msr_withheld"] = intake
-            diags[t]["msr_released"] = release
-            diags[t]["msr_pool"] = decree_reserve
-        elif msr_state is not None and _msr_active(market):
-            begin_bank = initial_bank if t == 0 else bank[t - 1]
-            adj_auction, withheld, released = msr_state.apply(
-                total_bank=begin_bank,
-                auction_offered=float(market.auction_offered),
-                upper_threshold=float(getattr(market, "msr_upper_threshold", 200.0)),
-                lower_threshold=float(getattr(market, "msr_lower_threshold", 50.0)),
-                withhold_rate=float(getattr(market, "msr_withhold_rate", 0.12)),
-                release_rate=float(getattr(market, "msr_release_rate", 50.0)),
-                cancel_excess=bool(getattr(market, "msr_cancel_excess", False)),
-                cancel_threshold=float(getattr(market, "msr_cancel_threshold", 400.0)),
                 year_label=str(market.year),
             )
-            supplies[t] = _free_allocation_total(market) + adj_auction
-            diags[t]["msr_withheld"] = withheld
-            diags[t]["msr_released"] = released
-            diags[t]["msr_pool"] = msr_state.reserve_pool
+            for rule in rules:
+                supplies[t], rule_diags = rule.apply(market, obs)
+                diags[t].update(rule_diags)
 
         floor = float(getattr(market, "auction_reserve_price", 0.0) or 0.0)
         if floor > prices[t] and market.unsold_treatment == "cancel":
@@ -540,12 +461,53 @@ def _supply_schedule(
     return supplies, diags
 
 
+def _default_supply_rule_factories(m0: CarbonMarket) -> list[SupplyRuleFactory]:
+    """Today's exact supply-rule wiring, derived from ``m0``'s ``msr_*`` flags.
+
+    TRANSITIONAL: this factory-builder moves to ``engine/wiring.py`` in the
+    engine work order (``docs/feature-modules-plan.md``); it lives here in O6
+    only so every external caller of ``solve_banking_path`` is untouched.
+
+    Mode dispatch is if/elif — a scenario gets EITHER the decree rule
+    (``msr_mode`` in {``price_band``, ``surplus_rule``, ``hybrid``}) OR the
+    bank-threshold rule, never both; ``msr_initial_reserve_mt`` funds ONLY
+    the decree rule (R7, ``docs/blocks-composition-rules.md``).
+
+    Args:
+        m0: First market of the chronologically sorted scenario path.
+
+    Returns:
+        Zero or one ``SupplyRuleFactory`` in a list (empty when the MSR is
+        disabled).
+    """
+    if not bool(getattr(m0, "msr_enabled", False)):
+        return []
+    msr_mode = str(getattr(m0, "msr_mode", "bank_threshold") or "bank_threshold")
+    # The banking path reads msr_start_year from the FIRST market only
+    # (scenario-level), while the competitive path's MSRCapRule re-reads it
+    # per year. Documented F2-family inconsistency (economist item 5d,
+    # docs/feature-modules-plan.md) — DO NOT HARMONISE without economist
+    # sign-off and new golden baselines.
+    msr_start = float(getattr(m0, "msr_start_year", 0.0) or 0.0)
+    if msr_mode != "bank_threshold":
+        initial_reserve = float(getattr(m0, "msr_initial_reserve_mt", 0.0) or 0.0)
+        return [
+            lambda: DecreeSupplyRule(
+                mode=msr_mode,
+                initial_reserve_mt=initial_reserve,
+                start_year=msr_start,
+            )
+        ]
+    return [lambda: ThresholdMSRSupplyRule(start_year=msr_start)]
+
+
 def solve_banking_path(
     ordered_markets: list[CarbonMarket],
     discount_rate: float = 0.055,
     risk_premium: float = 0.0,
     initial_bank: float | None = None,
     strict_no_arbitrage: bool | None = None,
+    supply_rule_factories: Sequence[SupplyRuleFactory] | None = None,
 ) -> list[dict]:
     r"""Solve the banking equilibrium path, composing supply rules to a fixed point.
 
@@ -564,6 +526,15 @@ def solve_banking_path(
             the scenario field ``banking_initial_bank`` (0 if unset).
         strict_no_arbitrage: Boundary-validity mode; defaults to the scenario
             field ``banking_strict_no_arbitrage`` (True if unset).
+        supply_rule_factories: Zero-argument constructors of the
+            ``SupplyRule`` objects composed INSIDE the fixed point (F4);
+            each factory is re-invoked at the top of every supply-schedule
+            evaluation so rule state never leaks across iterations or solver
+            invocations (``ets.core.protocols``). ``None`` (default) wires
+            today's rules from the first market's ``msr_*`` scenario flags
+            via ``_default_supply_rule_factories``; pass an empty sequence
+            for an explicitly MSR-free schedule (the reserve-price
+            floor-cancellation is banking-owned and applies regardless).
 
     Returns:
         Path details in the ``_simulate_path_details`` structure, with
@@ -614,7 +585,12 @@ def solve_banking_path(
     window: tuple[int, int] | None = None
     bank: list[float] = []
 
-    has_rules = bool(getattr(m0, "msr_enabled", False)) or any(
+    # Default wiring reproduces the pre-injection behaviour exactly: factories
+    # non-empty iff msr_enabled, so has_rules is unchanged for None callers.
+    if supply_rule_factories is None:
+        supply_rule_factories = _default_supply_rule_factories(m0)
+
+    has_rules = bool(supply_rule_factories) or any(
         float(getattr(m, "auction_reserve_price", 0.0) or 0.0) > 0.0
         for m in ordered_markets
     )
@@ -628,7 +604,7 @@ def solve_banking_path(
         if not has_rules:
             break
         new_supplies, diags = _supply_schedule(
-            ordered_markets, prices, bank, initial_bank
+            ordered_markets, prices, bank, initial_bank, supply_rule_factories
         )
         max_delta = max(abs(a - b) for a, b in zip(new_supplies, supplies))
         logger.debug(

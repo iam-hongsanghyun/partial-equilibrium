@@ -161,6 +161,106 @@ def test_late_announced_decree_keeps_its_prefunded_reserve():
     np.testing.assert_allclose(pool["2032"], 50.0, atol=1e-9)
 
 
+# ── Splice state-carry pins (feature-modules plan, O6 economist item 5c) ─────
+# Requirement (b) — the pre-funded-decree ordering (msr_ran_last_segment is
+# evaluated from the PRE-announcement segment before pending events apply, so
+# a decree announced with its own msr_initial_reserve_mt keeps that funding,
+# commit d2386b4) — is pinned by
+# test_late_announced_decree_keeps_its_prefunded_reserve above.
+
+NOOP_EVENT_2032 = [{"announced": "2032", "changes": {}}]
+
+
+def test_splice_carries_bank_and_decree_reserve_across_segments():
+    """Requirement (a): the banking path publishes "Banking Aggregate Bank"
+    and "MSR Reserve Pool" — the EXACT summary columns events.py reads at
+    the splice (events.py:191-196) — and a decree reserve accumulated in
+    segment 1 funds segment 2.
+
+    Decree price band [1e9, 2e9]: every year with history intakes 20 Mt
+    (prev price <= low), so segment 1 (2030-31) has pools (0, 20) and the
+    full-horizon supply is S_eff = (95, 65, 55). The no-op event announced
+    in 2032 forces a splice: segment 2 re-solves 2032 alone with the carried
+    bank B_1 and carried pool 20; its first year has no decree history, so
+    the action is neutral and 2032 clears the single-year window budget
+    B_1 + 75:
+
+        P_2030 = c(3E - 215)/(1 + (1+r) + (1+r)^2),  P_2031 = (1+r)P_2030,
+        P_2032 = c(E - 75 - B_1).
+
+    Discriminators: a broken bank carry gives P_2032 = c(E - 75) = 2500;
+    a broken pool carry gives pool_2032 = 0.
+    """
+    cfg = _config("banking", NOOP_EVENT_2032)
+    cfg["scenarios"][0].update(
+        {
+            "msr_enabled": True,
+            "msr_mode": "price_band",
+            "msr_price_band_low": 1e9,   # prev price always <= low -> intake
+            "msr_price_band_high": 2e9,
+            "msr_max_intake_mt": 20.0,
+            "msr_max_release_mt": 20.0,
+        }
+    )
+    summary, _ = run_simulation_from_config(cfg)
+    assert "Banking Aggregate Bank" in summary.columns
+    assert "MSR Reserve Pool" in summary.columns
+
+    prices = _prices(summary)
+    pool = dict(zip(summary["Year"], summary["MSR Reserve Pool"]))
+    withheld = dict(zip(summary["Year"], summary["MSR Withheld"]))
+
+    growth = 1.0 + (1.0 + R) + (1.0 + R) ** 2
+    p0 = C * (3 * E - (95.0 + 65.0 + 55.0)) / growth
+    b0 = 95.0 - (E - p0 / C)
+    b1 = b0 + 65.0 - (E - p0 * (1.0 + R) / C)
+    np.testing.assert_allclose(prices["2030"], p0, rtol=1e-5)
+    np.testing.assert_allclose(prices["2031"], p0 * (1.0 + R), rtol=1e-5)
+    np.testing.assert_allclose(prices["2032"], C * (E - 75.0 - b1), rtol=1e-5)
+
+    np.testing.assert_allclose(
+        [pool["2030"], pool["2031"], pool["2032"]], [0.0, 20.0, 20.0], atol=1e-9
+    )
+    np.testing.assert_allclose(withheld["2031"], 20.0, atol=1e-9)
+    np.testing.assert_allclose(withheld["2032"], 0.0, atol=1e-12)  # neutral first year
+
+
+def test_bank_threshold_pool_resets_per_segment_while_decree_carries():
+    """Requirement (c), docs/banking-equilibrium.md:117-120: a bank_threshold
+    pool is NOT carried state — the rule reconstructs an empty pool each
+    segment (R7: only a decree owns msr_initial_reserve_mt, so the value the
+    splice stamps is ignored) — whereas the decree in the test above carries
+    its reserve.
+
+    Supplies 60/60/60 with a 60 Mt initial bank keep the beginning-of-year
+    bank far above the 10 Mt threshold in every year and iteration, so every
+    year withholds 0.12·60 = 7.2 Mt: segment-1 pools cumulate (7.2, 14.4);
+    segment 2 restarts at 7.2 instead of continuing to 21.6.
+    """
+    cfg = _config("banking", NOOP_EVENT_2032)
+    for year in cfg["scenarios"][0]["years"]:
+        year["total_cap"] = 60.0
+    cfg["scenarios"][0].update(
+        {
+            "banking_initial_bank": 60.0,
+            "msr_enabled": True,
+            "msr_mode": "bank_threshold",
+            "msr_upper_threshold": 10.0,
+            "msr_lower_threshold": 0.0,
+            "msr_withhold_rate": 0.12,
+            "msr_release_rate": 50.0,
+        }
+    )
+    summary, _ = run_simulation_from_config(cfg)
+    pool = dict(zip(summary["Year"], summary["MSR Reserve Pool"]))
+    w = 0.12 * 60.0  # same float expression the rule evaluates
+    np.testing.assert_allclose(pool["2030"], w, rtol=0, atol=0)
+    np.testing.assert_allclose(pool["2031"], w + w, rtol=0, atol=0)
+    # Segment 2: a FRESH pool withholds once — not the carried 14.4 + 7.2.
+    np.testing.assert_allclose(pool["2032"], w, rtol=0, atol=0)
+    assert abs(pool["2032"] - (w + w + w)) > 10.0
+
+
 def test_msr_start_year_gates_the_rule():
     """A decree MSR with msr_start_year beyond the horizon never fires."""
     cfg = _config("banking")
