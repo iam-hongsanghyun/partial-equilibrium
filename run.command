@@ -5,9 +5,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-PYTHON_BIN="$SCRIPT_DIR/.venv/bin/python"
+VENV_DIR="$SCRIPT_DIR/.venv"
+PYTHON_BIN="$VENV_DIR/bin/python"
+REQUIREMENTS="$SCRIPT_DIR/requirements.txt"
+STAMP="$VENV_DIR/.requirements-installed"
+
 if [[ ! -x "$PYTHON_BIN" ]]; then
-  PYTHON_BIN="python3"
+  echo "Creating virtual environment in $VENV_DIR ..."
+  python3 -m venv "$VENV_DIR"
+fi
+
+if [[ -f "$REQUIREMENTS" ]] && { [[ ! -f "$STAMP" ]] || [[ "$REQUIREMENTS" -nt "$STAMP" ]]; }; then
+  echo "Installing requirements ..."
+  "$PYTHON_BIN" -m pip install --upgrade pip
+  "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS"
+  touch "$STAMP"
 fi
 
 if [[ "$#" -eq 0 ]]; then
