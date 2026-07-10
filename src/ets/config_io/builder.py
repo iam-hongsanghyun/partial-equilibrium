@@ -3,11 +3,19 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.costs import linear_abatement_factory, piecewise_abatement_factory
 from ..core.participant import MarketParticipant, TechnologyOption
 from ..core.market import CarbonMarket
+from ..features.cbam.plugin import (
+    CBAMParticipantReporter,
+    CBAMSummaryAggregatesReporter,
+    CBAMSummaryTotalsReporter,
+)
+from ..features.ccr.plugin import CCRSummaryPlaceholderReporter
+from ..features.msr.plugin import MSRSummaryPlaceholderReporter
+from ..features.sectors.plugin import SectorSummaryReporter
 from .normalize import (
     ALLOWED_MODEL_APPROACHES,
     normalize_participant,
@@ -15,6 +23,27 @@ from .normalize import (
     normalize_year,
 )
 from .templates import blank_scenario, blank_year_config
+
+if TYPE_CHECKING:
+    from ..core.protocols import ParticipantReporter, SummaryReporter
+
+# ── Reporting plugin attachment (PLAN v2 "Two-door features"; Arbitration ──
+# outcomes O7): reviewed source literals composed here (never via registry
+# mutation) and attached to every ``CarbonMarket`` at its single
+# construction site, ``build_market_from_year`` below. Stage order
+# reproduces the pre-refactor ``core/market/reporting.py`` interleave
+# EXACTLY (participant reporters have only one member today; the two
+# summary stages straddle the host's mid-dict "Year" insertion).
+_PARTICIPANT_REPORTERS: tuple["ParticipantReporter", ...] = (CBAMParticipantReporter(),)
+_SUMMARY_REPORTERS_PRE_YEAR: tuple["SummaryReporter", ...] = (
+    CBAMSummaryAggregatesReporter(),
+    MSRSummaryPlaceholderReporter(),
+    CCRSummaryPlaceholderReporter(),
+)
+_SUMMARY_REPORTERS_POST_YEAR: tuple["SummaryReporter", ...] = (
+    CBAMSummaryTotalsReporter(),
+    SectorSummaryReporter(),
+)
 
 
 def _normalize_trajectory(raw: Any) -> dict:
@@ -522,6 +551,13 @@ def build_market_from_year(
         manual_expected_price=year_config["manual_expected_price"],
         penalty_price_multiplier=float(meta.get("solver_penalty_price_multiplier") or 1.25),
     )
+    # Attach reporting plugin literals (PLAN v2 two-door features; the only
+    # CarbonMarket construction site that wires them — Arbitration outcomes,
+    # O7). A market built directly, outside config_io, keeps the base
+    # columns only (see CarbonMarket's docstring).
+    market.participant_reporters = _PARTICIPANT_REPORTERS
+    market.summary_reporters_pre_year = _SUMMARY_REPORTERS_PRE_YEAR
+    market.summary_reporters_post_year = _SUMMARY_REPORTERS_POST_YEAR
     # Attach scenario-level and year-level modelling approach fields
     market.model_approach = meta.get("model_approach", "competitive")
     market.discount_rate = float(meta.get("discount_rate") or 0.04)

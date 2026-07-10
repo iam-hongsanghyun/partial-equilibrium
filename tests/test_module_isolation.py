@@ -52,8 +52,26 @@ Algorithm:
     `solvers/simulation.py:_simulate_path_details`) is LEGACY-to-LEGACY, not
     a boundary crossing at all.
 
+    Door-granular two-door contract (PLAN v2 §"Two-door features", O7):
+    `ets.features` now exists, and PLAN v2 supersedes the v1 reading of
+    clauses (c) and (e) for exactly one edge shape — `ets.config_io` may
+    import `ets.features.<X>.plugin`, and ONLY that module (a feature's
+    config-facing door: field specs, build-time transforms, attachable
+    reporters/overlays/carriers; imports `ets.core.*` + stdlib only).
+    `_is_plugin_door` checks this file-exact, not package-exact: a feature's
+    bare package (`ets.features.cbam`, i.e. its `__init__.py`) and its
+    runtime modules (`ets.features.<X>.solver`/`rules`/`state`, none exist
+    yet) are NOT doors — those stay reachable only from `ets.engine` (T3)
+    and same-feature siblings, exactly as clause (c) already required. This
+    is the file's edit point for later work orders that add runtime feature
+    modules: widen `_is_plugin_door`'s allowed *importers* only if a new
+    door type is deliberately introduced, never widen it to match more than
+    the literal `plugin` submodule.
+
 References:
-    docs/feature-modules-plan.md §1 (tier table), §3 (this test's spec).
+    docs/feature-modules-plan.md §1 (tier table), §3 (this test's spec);
+    PLAN v2 §"Two-door features"; Arbitration outcomes (O7 binding
+    conditions).
 """
 
 from __future__ import annotations
@@ -184,6 +202,27 @@ def classify(module: str) -> ModuleInfo:
     # ets.participant.*, and the top-level `ets` package itself) — exempt
     # from tier rules but still edge-collected (plan §3).
     return ModuleInfo(module, "LEGACY")
+
+
+def _is_plugin_door(module: str) -> bool:
+    """Return True if `module` is exactly a feature's `plugin` config door.
+
+    File-exact, not package-exact (PLAN v2 §"Two-door features"): matches
+    `ets.features.<X>.plugin` only — a feature's bare package
+    (`ets.features.<X>`, i.e. its `__init__.py`) and its runtime modules
+    (`ets.features.<X>.solver`/`rules`/`state`, ...) do NOT match. This is
+    the door-granularity check clauses (c) and (e) use to grant
+    `ets.config_io` read access to exactly the config-facing door and
+    nothing else in a feature package.
+
+    Args:
+        module: Fully-qualified dotted module name.
+
+    Returns:
+        True iff `module` is `ets.features.<feature>.plugin`.
+    """
+    parts = module.split(".")
+    return len(parts) == 4 and parts[0] == "ets" and parts[1] == "features" and parts[3] == "plugin"
 
 
 # --------------------------------------------------------------------------
@@ -363,7 +402,13 @@ def test_features_import_only_core() -> None:
 
 
 def test_features_imported_only_from_engine_or_shim() -> None:
-    """Clause (c): `ets.features.*` is imported only from engine or a shim."""
+    """Clause (c), door-granular under PLAN v2: `ets.features.*` is imported
+    only from engine or a shim — EXCEPT a feature's `plugin` door
+    (`ets.features.<X>.plugin` exactly), which `ets.config_io` may also
+    import (the two-door contract; see `_is_plugin_door` and the module
+    docstring). A feature's runtime modules stay reachable only from engine/
+    shim/same-feature, unchanged from v1.
+    """
     bad = []
     for s, d in EDGES:
         si, di = classify(s), classify(d)
@@ -371,10 +416,14 @@ def test_features_imported_only_from_engine_or_shim() -> None:
             continue
         if si.tier in {"T3", "SHIM"}:
             continue
+        if si.tier == "T1" and _is_plugin_door(d):
+            continue  # PLAN v2 two-door contract: config_io -> plugin door
         if si.tier == "T2" and si.feature == di.feature:
             continue  # internal same-feature edge, not an external importer
         bad.append((s, d))
-    _assert_no_violations(bad, rule="(c) features imported only from engine/shim")
+    _assert_no_violations(
+        bad, rule="(c) features imported only from engine/shim (+ config_io->plugin door)"
+    )
 
 
 def test_core_imports_only_core() -> None:
@@ -384,11 +433,25 @@ def test_core_imports_only_core() -> None:
 
 
 def test_config_io_imports_only_core() -> None:
-    """Clause (e): `ets.config_io.*` imports only `ets.core.*` (within ets)."""
-    bad = [
-        (s, d) for s, d in EDGES if classify(s).tier == "T1" and classify(d).tier not in {"T0", "T1"}
-    ]
-    _assert_no_violations(bad, rule="(e) config_io imports only core")
+    """Clause (e), door-granular under PLAN v2 (supersedes the v1 reading):
+    `ets.config_io.*` imports only `ets.core.*` (within ets) OR a feature's
+    `plugin` door EXACTLY (`ets.features.<X>.plugin`; see `_is_plugin_door`)
+    — never a feature's bare package or its runtime modules
+    (`ets.features.<X>.solver`/`rules`/`state`). PLAN v2 "Two-door features"
+    is what widens clause (e); door granularity is what keeps the widening
+    contained to one reviewed module per feature.
+    """
+    bad = []
+    for s, d in EDGES:
+        si, di = classify(s), classify(d)
+        if si.tier != "T1":
+            continue
+        if di.tier in {"T0", "T1"}:
+            continue
+        if di.tier == "T2" and _is_plugin_door(d):
+            continue
+        bad.append((s, d))
+    _assert_no_violations(bad, rule="(e) config_io imports only core + feature plugin doors")
 
 
 def test_engine_excludes_workflows_and_apps() -> None:

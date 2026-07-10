@@ -1,8 +1,29 @@
+"""Reporting host — base columns + staged reporter iteration (T0 kernel).
+
+Emits the BASE participant and summary columns (the fixed schema every
+scenario gets regardless of configuration) and iterates the reporters
+attached to ``market`` (``core/market/model.py`` ``participant_reporters``,
+``summary_reporters_pre_year``, ``summary_reporters_post_year`` —
+``core/protocols.py`` ``ParticipantReporter`` / ``SummaryReporter``). This
+module is the reporting HOST: it owns column order (dict insertion order),
+never feature-specific column expressions — those live in the feature
+plugin doors that attach to ``market`` (``config_io/builder.py:
+build_market_from_year``; ``docs/feature-modules-plan.md`` PLAN v2
+§"Two-door features", Arbitration outcomes O7).
+
+Column order is a reviewed source literal, not incidental: the golden
+baselines (``tests/test_golden_baselines.py``) and the column-order pin
+(``tests/test_reporting_columns.py``) are column-order-sensitive.
+
+    participant frame : base columns -> reporters (attach order) -> "Year"
+    summary frame      : core keys -> pre-Year reporters -> "Year"
+                          -> post-Year reporters -> per-participant tail
+"""
+
 from __future__ import annotations
 
 from typing import Dict
 
-import numpy as np
 import pandas as pd
 
 from .model import CarbonMarket
@@ -15,6 +36,29 @@ def participant_results(
     bank_balances: dict[str, float] | None = None,
     expected_future_price: float = 0.0,
 ) -> pd.DataFrame:
+    """Build the per-participant results frame for one solved market-year.
+
+    Column order: the base columns below, then each attached
+    ``market.participant_reporters`` in order (its ``columns()`` dict is
+    merged in, insertion order is column order), then ``"Year"`` at the
+    tail. Reporters are attach-always (``core/protocols.py``
+    ``ParticipantReporter``): ``market.participant_reporters`` defaults to
+    an empty tuple (base columns only, ``core/market/model.py``
+    ``CarbonMarket`` docstring) and is populated by
+    ``config_io/builder.py:build_market_from_year`` for every in-repo market.
+
+    Args:
+        market: The year's solved market.
+        equilibrium_price: Solved allowance price [currency/tCO2], also
+            passed to reporters as ``price``.
+        bank_balances: Beginning-of-year bank balances by participant name
+            [Mt CO2e], or ``None`` for a static (no-banking) year.
+        expected_future_price: Expected next-year price [currency/tCO2]
+            used by the compliance outcome's bank/borrow decision.
+
+    Returns:
+        One row per participant; columns per the order above.
+    """
     records: list[Dict[str, float | str]] = []
     for participant in market.participants:
         outcome = _participant_outcome(
@@ -24,86 +68,6 @@ def participant_results(
             bank_balances=bank_balances,
             expected_future_price=expected_future_price,
         )
-        # ── CBAM liability ──────────────────────────────────────────────
-        eua_price = float(getattr(market, "eua_price", 0.0) or 0.0)
-        eua_prices = dict(getattr(market, "eua_prices", {}) or {})
-        eua_price_ensemble = dict(getattr(market, "eua_price_ensemble", {}) or {})
-        kau_price = float(equilibrium_price)
-
-        # Multi-jurisdiction CBAM —  if cbam_jurisdictions is non-empty, compute
-        # per-jurisdiction liabilities and sum; otherwise fall back to single fields.
-        jurisdictions = list(getattr(participant, "cbam_jurisdictions", None) or [])
-        if jurisdictions:
-            cbam_gap = 0.0  # aggregate gap (weighted, for display)
-            cbam_export_share = 0.0
-            cbam_liable_emissions = 0.0
-            cbam_liability = 0.0
-            jur_records: dict = {}
-            for jur in jurisdictions:
-                jname   = str(jur.get("name", ""))
-                jshare  = float(jur.get("export_share", 0.0) or 0.0)
-                jcov    = float(jur.get("coverage_ratio", 1.0) or 1.0)
-                # Reference price: jurisdiction-specific override > eua_prices dict > eua_price (EU)
-                jref    = float(jur.get("reference_price") or eua_prices.get(jname) or eua_price or 0.0)
-                jgap    = max(0.0, jref - kau_price)
-                jliable = outcome.residual_emissions * jshare * jcov
-                jliab   = jgap * jliable
-                cbam_export_share   += jshare
-                cbam_liable_emissions += jliable
-                cbam_liability      += jliab
-                jur_records[f"CBAM Liability ({jname})"] = jliab
-                jur_records[f"CBAM Gap ({jname})"]       = jgap
-            cbam_gap = (cbam_liability / cbam_liable_emissions) if cbam_liable_emissions > 0 else 0.0
-        else:
-            cbam_gap          = max(0.0, eua_price - kau_price)
-            cbam_export_share = float(getattr(participant, "cbam_export_share", 0.0) or 0.0)
-            cbam_coverage     = float(getattr(participant, "cbam_coverage_ratio", 1.0) or 1.0)
-            cbam_liable_emissions = outcome.residual_emissions * cbam_export_share * cbam_coverage
-            cbam_liability    = cbam_gap * cbam_liable_emissions
-            jur_records       = {}
-
-        total_cost_incl_cbam = outcome.total_cost + cbam_liability
-
-        # EUA ensemble — compute CBAM liability under each named EUA trajectory
-        ensemble_records: dict = {}
-        for ename, eprice in eua_price_ensemble.items():
-            egap = max(0.0, float(eprice) - kau_price)
-            if jurisdictions:
-                eliab = sum(
-                    egap * outcome.residual_emissions
-                    * float(j.get("export_share", 0.0))
-                    * float(j.get("coverage_ratio", 1.0))
-                    for j in jurisdictions
-                )
-            else:
-                eliab = egap * outcome.residual_emissions * cbam_export_share * float(
-                    getattr(participant, "cbam_coverage_ratio", 1.0) or 1.0
-                )
-            ensemble_records[f"CBAM Liability ({ename})"] = eliab
-
-        # ── Scope 2 / indirect emissions ────────────────────────────────
-        elec  = float(getattr(participant, "electricity_consumption", 0.0) or 0.0)
-        grid  = float(getattr(participant, "grid_emission_factor", 0.0) or 0.0)
-        s2cov = float(getattr(participant, "scope2_cbam_coverage", 0.0) or 0.0)
-        indirect_emissions = elec * grid
-
-        # Scope 2 CBAM liability — uses same price gap logic as direct CBAM
-        if jurisdictions:
-            scope2_cbam_liability = sum(
-                max(0.0, float(jur.get("reference_price") or eua_prices.get(str(jur.get("name", ""))) or eua_price or 0.0) - kau_price)
-                * indirect_emissions
-                * float(jur.get("export_share", 0.0))
-                * s2cov
-                for jur in jurisdictions
-            )
-        else:
-            scope2_cbam_liability = (
-                max(0.0, eua_price - kau_price)
-                * indirect_emissions
-                * cbam_export_share
-                * s2cov
-            )
-
         record: Dict[str, float | str] = {
             "Scenario": market.scenario_name,
             "Participant": participant.name,
@@ -131,20 +95,11 @@ def participant_results(
             "Penalty Cost": outcome.penalty_cost,
             "Sales Revenue": outcome.sales_revenue,
             "Total Compliance Cost": outcome.total_cost,
-            "EUA Price": eua_price,
-            "CBAM Gap": cbam_gap,
-            "CBAM Export Share": cbam_export_share,
-            "CBAM Liable Emissions": cbam_liable_emissions,
-            "CBAM Liability": cbam_liability,
-            "Total Cost incl. CBAM": total_cost_incl_cbam,
-            "Electricity Consumption": elec,
-            "Grid Emission Factor": grid,
-            "Indirect Emissions": indirect_emissions,
-            "Scope 2 CBAM Coverage": s2cov,
-            "Scope 2 CBAM Liability": scope2_cbam_liability,
-            **jur_records,
-            **ensemble_records,
         }
+        for reporter in market.participant_reporters:
+            record.update(
+                reporter.columns(market, participant, outcome, equilibrium_price)
+            )
         if market.year is not None:
             record["Year"] = market.year
         records.append(record)
@@ -159,6 +114,38 @@ def scenario_summary(
     auction_outcome: dict[str, float] | None = None,
     participant_df: pd.DataFrame | None = None,
 ) -> Dict[str, float | str]:
+    """Build the scenario-summary record for one solved market-year.
+
+    Column order (Arbitration outcomes, O7 — the staged literal reproduces
+    the pre-refactor interleave EXACTLY):
+
+        core keys -> summary_reporters_pre_year (in order) -> "Year"
+        -> summary_reporters_post_year (in order) -> per-participant tail
+
+    Each stage receives and mutates the SAME accumulating ``summary`` dict
+    (``core/protocols.py`` ``SummaryReporter``) — later stages read earlier
+    stages' columns (e.g. the CBAM revenue tracker reads ``"Total Auction
+    Revenue"`` from the core keys and ``"Total CBAM Liability"`` from its
+    own pre-Year stage). Reporters are attach-always: both reporter tuples
+    default to empty (base columns only) and are populated by
+    ``config_io/builder.py:build_market_from_year``.
+
+    Args:
+        market: The year's solved market.
+        equilibrium_price: Solved allowance price [currency/tCO2].
+        bank_balances: Beginning-of-year bank balances by participant name
+            [Mt CO2e], forwarded to ``participant_results`` when
+            ``participant_df`` is not already supplied.
+        expected_future_price: Expected next-year price [currency/tCO2].
+        auction_outcome: Solved auction outcome (offered/sold/unsold/
+            coverage); defaults to a fully-subscribed auction at
+            ``market.auction_offered`` when ``None``.
+        participant_df: Already-solved participant frame, to avoid
+            re-solving; computed via ``participant_results`` when ``None``.
+
+    Returns:
+        The scenario-summary record; key order per the staging above.
+    """
     if participant_df is None:
         participant_df = participant_results(
             market,
@@ -206,77 +193,25 @@ def scenario_summary(
         "Total Compliance Cost": float(
             participant_df["Total Compliance Cost"].sum()
         ),
-        # ── CBAM aggregates ────────────────────────────────────────────
-        "EUA Price": float(getattr(market, "eua_price", 0.0) or 0.0),
-        "CBAM Gap": float(participant_df["CBAM Gap"].iloc[0]) if len(participant_df) else 0.0,
-        "Total CBAM Liability": float(participant_df["CBAM Liability"].sum()),
-        "Total Cost incl. CBAM": float(participant_df["Total Cost incl. CBAM"].sum()),
-        # ── MSR aggregates (filled by simulation.py) ───────────────────
-        "MSR Withheld": 0.0,
-        "MSR Released": 0.0,
-        "MSR Reserve Pool": 0.0,
-        # ── CCR aggregates (filled by simulation.py) ───────────────────
-        "CCR Cap Adjustment": 0.0,
-        "CCR Emissions Deviation": 0.0,
-        "CCR Cost Deviation": 0.0,
     }
+
+    # Stage A (pre-Year): attach-always feature aggregates (CBAM, then MSR
+    # placeholders, then CCR placeholders — the reviewed literal in
+    # config_io/builder.py).
+    for reporter in market.summary_reporters_pre_year:
+        reporter.contribute(summary, market, participant_df, equilibrium_price)
+
+    # Year placement is per-host: mid-dict, after the pre-Year stage
+    # (Arbitration outcomes, O7).
     if market.year is not None:
         summary["Year"] = market.year
 
-    # ── Auction revenue reinvestment tracker ─────────────────────────────
-    auction_rev = float(summary.get("Total Auction Revenue", 0.0))
-    cbam_liability = float(summary.get("Total CBAM Liability", 0.0))
-    summary["Domestic Retained Revenue"] = auction_rev
-    summary["CBAM Foregone Revenue"] = cbam_liability  # flows to EU instead of domestic fund
-    summary["Potential Revenue if KAU=EUA"] = auction_rev + cbam_liability
+    # Stage B (post-Year): CBAM revenue tracker + jurisdiction/ensemble/
+    # scope-2 totals, then sector aggregates + percentiles.
+    for reporter in market.summary_reporters_post_year:
+        reporter.contribute(summary, market, participant_df, equilibrium_price)
 
-    # ── Per-jurisdiction CBAM totals ─────────────────────────────────────
-    for col in participant_df.columns:
-        if col.startswith("CBAM Liability (") or col.startswith("CBAM Gap ("):
-            summary[f"Total {col}"] = float(participant_df[col].sum())
-
-    # ── EUA ensemble totals ──────────────────────────────────────────────
-    for col in participant_df.columns:
-        if col.startswith("CBAM Liability (") and col not in summary:
-            summary[f"Total {col}"] = float(participant_df[col].sum())
-
-    # ── Market-level Scope 2 / indirect totals ───────────────────────────
-    summary["Total Indirect Emissions"] = float(participant_df["Indirect Emissions"].sum()) if "Indirect Emissions" in participant_df.columns else 0.0
-    summary["Total Scope 2 CBAM Liability"] = float(participant_df["Scope 2 CBAM Liability"].sum()) if "Scope 2 CBAM Liability" in participant_df.columns else 0.0
-
-    # ── Sector-group aggregates ──────────────────────────────────────────
-    if "Sector Group" in participant_df.columns:
-        for sg, grp in participant_df.groupby("Sector Group"):
-            if not sg:
-                continue
-            summary[f"{sg} Total Abatement"]           = float(grp["Abatement"].sum())
-            summary[f"{sg} Total Compliance Cost"]      = float(grp["Total Compliance Cost"].sum())
-            summary[f"{sg} Total CBAM Liability"]       = float(grp["CBAM Liability"].sum())
-            # Auction revenue attribution: sector's share of total allowance buys × auction price
-            sector_buys = float(grp["Allowance Buys"].sum())
-            total_buys  = float(participant_df["Allowance Buys"].sum())
-            auction_rev = summary.get("Total Auction Revenue", 0.0)
-            summary[f"{sg} Allowance Buys"]             = sector_buys
-            summary[f"{sg} Allowance Cost"]             = float(grp["Allowance Cost"].sum())
-            summary[f"{sg} Auction Revenue Share"]      = (
-                float(auction_rev) * (sector_buys / total_buys) if total_buys > 0 else 0.0
-            )
-            # Scope 2 by sector
-            if "Indirect Emissions" in grp.columns:
-                summary[f"{sg} Indirect Emissions"]     = float(grp["Indirect Emissions"].sum())
-                summary[f"{sg} Scope 2 CBAM Liability"] = float(grp["Scope 2 CBAM Liability"].sum())
-
-    # ── Per-sector compliance cost distribution (P10, P50, P90) ──────────
-    if "Sector Group" in participant_df.columns:
-        for sg, grp in participant_df.groupby("Sector Group"):
-            if not sg or len(grp) < 2:
-                continue
-            costs = grp["Total Compliance Cost"].values
-            summary[f"{sg} P10 Compliance Cost"] = float(np.percentile(costs, 10))
-            summary[f"{sg} P50 Compliance Cost"] = float(np.percentile(costs, 50))
-            summary[f"{sg} P90 Compliance Cost"] = float(np.percentile(costs, 90))
-            summary[f"{sg} Cost Std Dev"] = float(np.std(costs))
-
+    # Host per-participant tail (generic — not owned by any feature).
     for _, row in participant_df.iterrows():
         participant_name = str(row["Participant"])
         summary[f"{participant_name} Technology"] = str(row["Chosen Technology"])

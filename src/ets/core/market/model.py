@@ -1,9 +1,31 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from ..participant import MarketParticipant
+
+if TYPE_CHECKING:
+    from ..protocols import ParticipantReporter, SummaryReporter
 
 
 class CarbonMarket:
+    """One year's carbon-market state: participants, cap, and reporters.
+
+    Reporting attachment (PLAN v2, ``docs/feature-modules-plan.md`` §"Two-door
+    features"; Arbitration outcomes, O7): ``participant_reporters`` and the
+    two summary-reporter stages (``summary_reporters_pre_year``,
+    ``summary_reporters_post_year`` — split so the host can insert ``"Year"``
+    between them, see ``core/market/reporting.py``) default to an empty
+    tuple. Only ``config_io/builder.py:build_market_from_year`` attaches the
+    feature literals (CBAM, sectors, MSR/CCR placeholders); a bare
+    ``CarbonMarket(...)`` constructed OUTSIDE ``config_io`` gets BASE COLUMNS
+    ONLY — no CBAM, sector, or MSR/CCR columns. This is a documented v2 risk
+    (feature-modules-plan.md "Risks v2 delta"), not a bug: every in-repo
+    market is built through ``config_io`` and gets the full column set; an
+    out-of-repo direct constructor must attach reporters itself to reproduce
+    it.
+    """
+
     def __init__(
         self,
         participants: list[MarketParticipant],
@@ -52,6 +74,12 @@ class CarbonMarket:
         self.eua_price: float = 0.0          # external EUA reference price (EU default)
         self.eua_prices: dict = {}           # per-jurisdiction prices e.g. {"EU": 65, "UK": 50}
         self.eua_price_ensemble: dict = {}   # named EUA trajectories e.g. {"EC": 65, "Enerdata": 70}
+        # Reporting overlays (PLAN v2 two-door features) — attached by
+        # config_io/builder.py:build_market_from_year via a reviewed source
+        # literal; empty by default (base columns only, see class docstring).
+        self.participant_reporters: tuple[ParticipantReporter, ...] = ()
+        self.summary_reporters_pre_year: tuple[SummaryReporter, ...] = ()
+        self.summary_reporters_post_year: tuple[SummaryReporter, ...] = ()
 
         free_allocations = sum(participant.free_allocation for participant in participants)
         allowance_supply = (
