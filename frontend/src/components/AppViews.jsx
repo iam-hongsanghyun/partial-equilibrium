@@ -22,6 +22,7 @@ import {
   getSeriesFieldMeta,
   TooltipButton,
 } from "./AppShared.jsx";
+import { activeFeatureIds, collectSlot, FEATURES } from "../features/registry.js";
 
 function BuildView({
   scenario, yearObj, activeYear, onYearChange, addYear, removeYear,
@@ -452,7 +453,10 @@ function ValidationView({ scenario, activeYear, onYearChange, validationIssues, 
 function AnalysisView({
   scenario, yearObj, activeYear, onYearChange, result, results, scenarios, stacked,
   onToggleStacked, dragSupply, selPart, setSelPart, analysis,
+  summary = [], enabledFeatures = null,
 }) {
+  const activeFeatures = activeFeatureIds(enabledFeatures);
+  const isFeatureActive = (id) => activeFeatures.includes(id);
   const yearKeys = scenario.years.map((year) => String(year.year));
   const resByYear = results[scenario.name] || {};
   const idx = yearKeys.indexOf(String(activeYear));
@@ -507,18 +511,27 @@ function AnalysisView({
             <div><div className="eyebrow">Auction rules</div><h2>What determined the auction outcome</h2><p className="muted">The current year’s auction mechanics and any policy frictions affecting supply available to the allowance market.</p></div>
           </div>
           <ul className="analysis-list">
-            <li>Reserve price: {yearObj.auction_reserve_price > 0 ? `auction sales cannot clear below ${fmt.price(yearObj.auction_reserve_price)}.` : "no separate reserve price is active."}</li>
-            <li>Minimum bid coverage: {yearObj.minimum_bid_coverage > 0 ? `at least ${fmt.num(yearObj.minimum_bid_coverage * 100, 0)}% of offered volume must be covered by bids.` : "no bid-coverage threshold is active."}</li>
-            <li>Unsold treatment: {describeUnsoldTreatment(yearObj.unsold_treatment || "reserve")}.</li>
+            {/* price_controls.analysisBullets[0..2] = reserve price, minimum
+                bid coverage, unsold treatment (rendered at their original
+                position, before the core "Reserved allowances" bullet). */}
+            {isFeatureActive("price_controls") &&
+              [0, 1, 2].map((index) => {
+                const Bullet = FEATURES.price_controls.analysisBullets?.[index];
+                return Bullet ? <Bullet key={`price-controls-bullet-${index}`} ctx={{ yearObj }} /> : null;
+              })}
             <li>Reserved allowances: {fmt.num(yearObj.reserved_allowances || 0, 0)} are held out of circulation before market clearing.</li>
-            <li>Cancelled allowances: {fmt.num(yearObj.cancelled_allowances || 0, 0)} are permanently removed from the annual cap.</li>
+            {/* price_controls.analysisBullets[3] = cancelled allowances. */}
+            {isFeatureActive("price_controls") && (() => {
+              const CancelledBullet = FEATURES.price_controls.analysisBullets?.[3];
+              return CancelledBullet ? <CancelledBullet ctx={{ yearObj }} /> : null;
+            })()}
             <li>Expectation rule: {result.expectationRule === "manual" ? `manual future price of ${fmt.price(result.manualExpectedPrice)}.` : `${result.expectationRule || "next_year_baseline"} with expected future price ${fmt.price(result.expectedFuturePrice)}.`}</li>
           </ul>
         </div>
       </section>
       <section className="panel panel-parts">
         <div className="panel-head"><div><div className="eyebrow">Figure 3</div><h2>Participant drilldown · {yearObj.year}</h2></div></div>
-        <ParticipantPanel year={yearObj} result={result} selectedIdx={selPart} onSelectParticipant={(index) => setSelPart(index === selPart ? null : index)} sectorColors={SECTOR_COLORS} />
+        <ParticipantPanel year={yearObj} result={result} selectedIdx={selPart} onSelectParticipant={(index) => setSelPart(index === selPart ? null : index)} sectorColors={SECTOR_COLORS} enabledFeatures={enabledFeatures} />
       </section>
       <section className="wb-grid">
         <div className="panel">
@@ -583,6 +596,9 @@ function AnalysisView({
         <div className="panel-head"><div><div className="eyebrow">Figure 7</div><h2>Year-by-year market views</h2><p className="muted">Interactive small-multiple market views for each year. Click a card to jump to that year.</p></div></div>
         <MarketYearGallery scenario={scenario} results={results} activeYear={activeYear} onSelectYear={onYearChange} />
       </section>
+      {collectSlot(enabledFeatures, "summaryPanels").map((Panel, index) => (
+        <Panel key={`summary-panel-${index}`} ctx={{ scenario, summary }} />
+      ))}
       <footer className="foot">
         <span>Numerical method · Brent root finding in Python</span><span>·</span>
         <span>Source of truth · backend model in <code>ets/participant.py</code> and <code>ets/market.py</code></span><span>·</span>

@@ -2,6 +2,7 @@
 // frontend/src/components/Editor.jsx (MSR panel, market step).
 
 import { CollapsibleGroup, numInput } from "../../components/EditorPrimitives.jsx";
+import { SummaryPathwayPanel, orderedSummaryRows } from "../../components/ResultPrimitives.jsx";
 
 function MsrEditorSection({ ctx }) {
   const { workingScenario, updateScenario } = ctx;
@@ -70,6 +71,38 @@ function MsrEditorSection({ ctx }) {
   );
 }
 
+// ── Result-side: MSR reserve summary panel (WO-F2) ───────────────────────
+// No component rendered payload.summary's "MSR Withheld" / "MSR Released" /
+// "MSR Reserve Pool" columns before this order — new, additive panel.
+// Self-hides (renders null) when every year's value is zero, so scenarios
+// where MSR never actually triggers (bank stays inside the thresholds) show
+// nothing, matching the all-features-enabled shell's current behaviour.
+
+const MSR_METRICS = [
+  { key: "MSR Withheld", label: "MSR Withheld (Mt)" },
+  { key: "MSR Released", label: "MSR Released (Mt)" },
+  { key: "MSR Reserve Pool", label: "MSR Reserve Pool (Mt)" },
+];
+
+function MsrReservePanel({ ctx }) {
+  const { scenario, summary } = ctx;
+  const rows = orderedSummaryRows(scenario, summary);
+  const hasData = rows.some((row) =>
+    MSR_METRICS.some((metric) => Number(row[metric.key] || 0) !== 0)
+  );
+  if (!hasData) return null;
+  return (
+    <SummaryPathwayPanel
+      eyebrow="Market Stability Reserve"
+      title="MSR withhold, release, and reserve pool by year"
+      description={`Auction-supply adjustment driven by the total banked-allowance threshold rule, for ${scenario.name}.`}
+      scenario={scenario}
+      rows={rows}
+      metrics={MSR_METRICS}
+    />
+  );
+}
+
 export default {
   id: "msr",
   scenarioDefaults: {
@@ -82,4 +115,5 @@ export default {
     msr_cancel_threshold: 400,
   },
   editorSections: [MsrEditorSection],
+  summaryPanels: [MsrReservePanel],
 };

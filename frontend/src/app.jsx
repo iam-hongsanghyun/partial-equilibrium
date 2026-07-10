@@ -506,6 +506,8 @@ export default function App({ enabledFeatures = null } = {}) {
           selPart={selPart}
           setSelPart={setSelPart}
           analysis={analysis}
+          summary={summary}
+          enabledFeatures={enabledFeatures}
         />
       )}
 

@@ -3,6 +3,7 @@
 // Adaptive, Taylor-rule-style cap (Benmir, Roman & Taschini 2025).
 
 import { CollapsibleGroup, numInput } from "../../components/EditorPrimitives.jsx";
+import { SummaryPathwayPanel, orderedSummaryRows } from "../../components/ResultPrimitives.jsx";
 
 function CcrEditorSection({ ctx }) {
   const { workingScenario, updateScenario } = ctx;
@@ -59,6 +60,36 @@ function CcrEditorSection({ ctx }) {
   );
 }
 
+// ── Result-side: CCR cap-adjustment summary panel (WO-F2) ────────────────
+// No component rendered payload.summary's "CCR Cap Adjustment" / deviation
+// columns before this order — new, additive panel. Self-hides when every
+// year's value is zero (CCR disabled or phi coefficients both zero).
+
+const CCR_METRICS = [
+  { key: "CCR Cap Adjustment", label: "Cap Adjustment (Mt)" },
+  { key: "CCR Emissions Deviation", label: "Emissions Deviation" },
+  { key: "CCR Cost Deviation", label: "Abatement Cost Deviation" },
+];
+
+function CcrPanel({ ctx }) {
+  const { scenario, summary } = ctx;
+  const rows = orderedSummaryRows(scenario, summary);
+  const hasData = rows.some((row) =>
+    CCR_METRICS.some((metric) => Number(row[metric.key] || 0) !== 0)
+  );
+  if (!hasData) return null;
+  return (
+    <SummaryPathwayPanel
+      eyebrow="Carbon Cap Rule"
+      title="CCR cap adjustment and reference deviations by year"
+      description={`Adaptive Taylor-rule cap adjustment and the emissions/abatement-cost gaps driving it, for ${scenario.name}.`}
+      scenario={scenario}
+      rows={rows}
+      metrics={CCR_METRICS}
+    />
+  );
+}
+
 export default {
   id: "ccr",
   scenarioDefaults: {
@@ -69,4 +100,5 @@ export default {
     ccr_reference_abatement_cost: 0,
   },
   editorSections: [CcrEditorSection],
+  summaryPanels: [CcrPanel],
 };

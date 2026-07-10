@@ -4,6 +4,7 @@
 // frontend/src/components/Editor.jsx.
 
 import { CollapsibleGroup, numInput } from "../../components/EditorPrimitives.jsx";
+import { fmt } from "../../components/MarketChart.jsx";
 
 function CbamEuaPricesSection({ ctx }) {
   const { workingYear, updateYear } = ctx;
@@ -224,6 +225,32 @@ function Scope2Section({ ctx }) {
   );
 }
 
+// ── Result-side: participant drilldown stat rows (WO-F2) ────────────────
+// Extracted verbatim from frontend/src/components/ParticipantPanel.jsx
+// (indirect_emissions, scope2_cbam_liability) plus a new CBAM-liability row
+// (cbam_liability — the /api/run payload already carries this key on every
+// perParticipant record; no component rendered it before this extraction).
+// Each stat self-hides (renders null) when its value is absent/zero, so the
+// all-features shell is pixel-identical to today on non-CBAM models.
+
+function IndirectEmissionsStat({ ctx }) {
+  const { r } = ctx;
+  if (!(r.indirect_emissions > 0)) return null;
+  return <div className="stat"><span className="label">Indirect Emissions</span><span className="val">{fmt.num(r.indirect_emissions, 1)}</span></div>;
+}
+
+function Scope2CbamStat({ ctx }) {
+  const { r } = ctx;
+  if (!(r.scope2_cbam_liability > 0)) return null;
+  return <div className="stat"><span className="label">Scope 2 CBAM</span><span className="val">{fmt.money(r.scope2_cbam_liability)}</span></div>;
+}
+
+function CbamLiabilityStat({ ctx }) {
+  const { r } = ctx;
+  if (!(r.cbam_liability > 0)) return null;
+  return <div className="stat"><span className="label">CBAM Liability</span><span className="val">{fmt.money(r.cbam_liability)}</span></div>;
+}
+
 export default {
   id: "cbam",
   participantDefaults: {
@@ -238,4 +265,5 @@ export default {
   },
   editorSections: [CbamEuaPricesSection],
   participantEditorSections: [CbamExposureSection, Scope2Section],
+  resultStats: [IndirectEmissionsStat, Scope2CbamStat, CbamLiabilityStat],
 };

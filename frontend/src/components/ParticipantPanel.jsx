@@ -1,7 +1,8 @@
 // Participant drilldown — a table + a horizontal diverging bar showing who buys vs who sells.
 import { fmt } from "./MarketChart.jsx";
+import { collectSlot } from "../features/registry.js";
 
-export function ParticipantPanel({ year, result, onEdit, onSelectParticipant, selectedIdx, sectorColors }) {
+export function ParticipantPanel({ year, result, onEdit, onSelectParticipant, selectedIdx, sectorColors, enabledFeatures = null }) {
   const rows = result.perParticipant;
   const maxAbs = Math.max(1, ...rows.map(r => Math.abs(r.net_trade)));
 
@@ -32,12 +33,9 @@ export function ParticipantPanel({ year, result, onEdit, onSelectParticipant, se
                 <div className="stat"><span className="label">Emissions</span><span className="val">{fmt.num(r.initial, 0)}</span></div>
                 <div className="stat"><span className="label">Free alloc</span><span className="val">{fmt.num(r.free, 0)}</span></div>
                 <div className="stat"><span className="label">Abated</span><span className="val abate">{fmt.num(r.abatement, 1)}</span></div>
-                {r.indirect_emissions > 0 && (
-                  <div className="stat"><span className="label">Indirect Emissions</span><span className="val">{fmt.num(r.indirect_emissions, 1)}</span></div>
-                )}
-                {r.scope2_cbam_liability > 0 && (
-                  <div className="stat"><span className="label">Scope 2 CBAM</span><span className="val">{fmt.money(r.scope2_cbam_liability)}</span></div>
-                )}
+                {collectSlot(enabledFeatures, "resultStats").map((Stat, index) => (
+                  <Stat key={index} ctx={{ r }} />
+                ))}
               </div>
               <div className="prow-bar">
                 <div className="bar-axis">
