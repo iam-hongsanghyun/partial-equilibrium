@@ -22,24 +22,27 @@ banking host consumes via lazy import (``HoardingInflow``,
 importer of the feature tier, so ``solvers/banking.py`` reaches feature
 classes only through this module until its own feature move (v1 O9 /
 v2 O13).
+
+LAZY, PER-MODEL FEATURE ACTIVATION (binding): every ``features.*`` runtime
+import below is FUNCTION-LOCAL — inside the branch of ``default_cap_rules``
+/ ``default_supply_rule_factories`` gated by the enable flag that needs it,
+or inside the body of the per-approach ``solve_*`` entry point that a
+scenario's ``model_approach`` actually selects. Importing this module (or
+``ets.engine``, or ``ets`` itself) must load none of the feature runtimes;
+only SOLVING a scenario with a given approach/flags loads that approach's
+(and only that approach's) feature solver and rule modules. This is
+activation scoping, not directory structure — the tier contract
+(``tests/test_module_isolation.py``) is unaffected: a lazy
+``features.*`` import inside a function body is still an engine->feature
+edge the AST walker counts, so nothing here is exempt from tier law, only
+from EAGER (module-import-time) execution. See
+``tests/engine/test_lazy_activation.py`` for the ``sys.modules``
+assertions this buys.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-
-from ..features.banking.solver import solve_banking_path as _banking_solve_path
-from ..features.ccr import CCRCapRule
-from ..features.competitive.solver import solve_scenario_path as _competitive_solve_path
-from ..features.hoarding.plugin import HoardingInflow
-from ..features.hotelling.solver import solve_hotelling_path as _hotelling_solve_path
-from ..features.msr import DecreeSupplyRule, MSRCapRule, MSRState, ThresholdMSRSupplyRule
-from ..features.nash_cournot.solver import solve_nash_path as _nash_solve_path
-from ..features.price_controls.plugin import DeliveredFloor
-from ..features.price_controls.rules import FloorCancellationRule
-from ..features.transmission.solver import (
-    solve_transmission_path as _transmission_solve_path,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -47,6 +50,9 @@ if TYPE_CHECKING:
     from ..core.market.model import CarbonMarket
     from ..core.protocols import CapRule, Friction, SupplyRuleFactory
     from ..features.banking.solver import FloorRule
+    from ..features.hoarding.plugin import HoardingInflow
+    from ..features.price_controls.plugin import DeliveredFloor
+    from ..features.price_controls.rules import FloorCancellationRule
 
 __all__ = [
     "DeliveredFloor",
@@ -62,6 +68,42 @@ __all__ = [
     "solve_scenario_path",
     "solve_transmission_path",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """PEP 562 lazy resolution of the re-exported feature classes.
+
+    ``DeliveredFloor``, ``FloorCancellationRule``, and ``HoardingInflow``
+    stay in ``__all__`` for backward-compatible attribute access
+    (``ets.engine.wiring.DeliveredFloor`` et al.), but resolving them
+    eagerly at module-import time would force-load their owning feature's
+    runtime regardless of which model approach a caller actually solves.
+    Nothing in this codebase imports them this way today (they are used
+    internally, below) — this hook exists so the documented surface stays
+    truthful without paying the eager-import cost.
+
+    Args:
+        name: Attribute requested on this module.
+
+    Returns:
+        The resolved class.
+
+    Raises:
+        AttributeError: ``name`` is not one of the three lazy re-exports.
+    """
+    if name == "DeliveredFloor":
+        from ..features.price_controls.plugin import DeliveredFloor
+
+        return DeliveredFloor
+    if name == "FloorCancellationRule":
+        from ..features.price_controls.rules import FloorCancellationRule
+
+        return FloorCancellationRule
+    if name == "HoardingInflow":
+        from ..features.hoarding.plugin import HoardingInflow
+
+        return HoardingInflow
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def default_cap_rules(m0: CarbonMarket, approach: str) -> list[CapRule]:
@@ -89,8 +131,12 @@ def default_cap_rules(m0: CarbonMarket, approach: str) -> list[CapRule]:
         # legacy-kwarg translation — equivalence pinned by
         # tests/test_cap_rule_injection.py.
         if bool(getattr(m0, "ccr_enabled", False)):
+            from ..features.ccr import CCRCapRule
+
             rules.append(CCRCapRule())
         if bool(getattr(m0, "msr_enabled", False)):
+            from ..features.msr import MSRCapRule
+
             rules.append(MSRCapRule())
         return rules
 
@@ -104,6 +150,8 @@ def default_cap_rules(m0: CarbonMarket, approach: str) -> list[CapRule]:
         # ``_competitive_fallback``): a per-year-gated MSR iff
         # m0.msr_enabled, and NEVER a CCR — even when ccr_enabled is set.
         if bool(getattr(m0, "msr_enabled", False)):
+            from ..features.msr import MSRCapRule
+
             rules.append(MSRCapRule())
         return rules
 
@@ -154,6 +202,8 @@ def default_supply_rule_factories(m0: CarbonMarket) -> list[SupplyRuleFactory]:
     # DO NOT HARMONISE without economist sign-off and new golden baselines.
     msr_start = float(getattr(m0, "msr_start_year", 0.0) or 0.0)
     if msr_mode != "bank_threshold":
+        from ..features.msr import DecreeSupplyRule
+
         initial_reserve = float(getattr(m0, "msr_initial_reserve_mt", 0.0) or 0.0)
         return [
             lambda: DecreeSupplyRule(
@@ -162,6 +212,8 @@ def default_supply_rule_factories(m0: CarbonMarket) -> list[SupplyRuleFactory]:
                 start_year=msr_start,
             )
         ]
+    from ..features.msr import ThresholdMSRSupplyRule
+
     return [lambda: ThresholdMSRSupplyRule(start_year=msr_start)]
 
 
@@ -186,6 +238,8 @@ def default_friction(ordered_markets: list[CarbonMarket]) -> Friction | None:
     if any(
         float(getattr(m, "hoarding_inflow", 0.0) or 0.0) > 0.0 for m in ordered_markets
     ):
+        from ..features.hoarding.plugin import HoardingInflow
+
         return HoardingInflow()
     return None
 
@@ -202,6 +256,8 @@ def default_floor_rule_factory() -> Callable[[], FloorCancellationRule]:
         A zero-argument constructor of a fresh floor-cancellation rule per
         schedule evaluation.
     """
+    from ..features.price_controls.rules import FloorCancellationRule
+
     return FloorCancellationRule
 
 
@@ -250,6 +306,13 @@ def solve_banking_path(
     Returns:
         Path details from ``features.banking.solver.solve_banking_path``.
     """
+    # Lazy: only a scenario whose model_approach resolves to banking pays
+    # for the banking runtime (scipy-backed window search) and its
+    # attach-always siblings (hoarding, price-controls) loading at all.
+    from ..features.banking.solver import solve_banking_path as _banking_solve_path
+    from ..features.hoarding.plugin import HoardingInflow
+    from ..features.price_controls.plugin import DeliveredFloor
+
     if not ordered_markets:
         # Replicated from the feature solver so default resolution below can
         # read the first market (identical message and exception type).
@@ -297,6 +360,8 @@ def solve_scenario_path(
     Returns:
         Path details from ``features.competitive.solver.solve_scenario_path``.
     """
+    from ..features.competitive.solver import solve_scenario_path as _competitive_solve_path
+
     cap_rules = (
         default_cap_rules(ordered_markets[0], "competitive") if ordered_markets else []
     )
@@ -328,6 +393,8 @@ def solve_hotelling_path(ordered_markets, **hotelling_kwargs) -> list[dict]:
     Returns:
         Path details from the feature solver.
     """
+    from ..features.hotelling.solver import solve_hotelling_path as _hotelling_solve_path
+
     cap_rules = (
         default_cap_rules(ordered_markets[0], "hotelling") if ordered_markets else []
     )
@@ -355,11 +422,13 @@ def solve_nash_path(ordered_markets, **nash_kwargs) -> list[dict]:
     Returns:
         Path details from the feature solver.
     """
-    msr_state = (
-        MSRState()
-        if ordered_markets and getattr(ordered_markets[0], "msr_enabled", False)
-        else None
-    )
+    from ..features.nash_cournot.solver import solve_nash_path as _nash_solve_path
+
+    msr_state = None
+    if ordered_markets and getattr(ordered_markets[0], "msr_enabled", False):
+        from ..features.msr import MSRState
+
+        msr_state = MSRState()
     return _nash_solve_path(ordered_markets, msr_state=msr_state, **nash_kwargs)
 
 
@@ -386,6 +455,10 @@ def solve_transmission_path(ordered_markets, lam: float, **kwargs) -> list[dict]
     Returns:
         Path details from the feature solver.
     """
+    from ..features.transmission.solver import (
+        solve_transmission_path as _transmission_solve_path,
+    )
+
     return _transmission_solve_path(
         ordered_markets,
         lam,
