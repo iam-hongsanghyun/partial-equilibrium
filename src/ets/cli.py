@@ -106,3 +106,7 @@ def main() -> None:
 
     print("\nParticipant-Level Results\n")
     print(participant_df.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
