@@ -12,6 +12,7 @@ from .dispatch import (
     run_simulation_from_config,
     run_simulation_from_file,
     solve_multi_market_scenario,
+    solve_multi_market_scenario_with_leg_items,
 )
 from .events import solve_scenario_with_events, validate_policy_events
 from .wiring import (
@@ -37,6 +38,7 @@ __all__ = [
     "solve_banking_path",
     "solve_hotelling_path",
     "solve_multi_market_scenario",
+    "solve_multi_market_scenario_with_leg_items",
     "solve_nash_path",
     "solve_scenario_path",
     "solve_scenario_with_events",

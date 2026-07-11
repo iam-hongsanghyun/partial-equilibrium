@@ -15,7 +15,9 @@ from __future__ import annotations
 import json
 import logging
 import math
+from collections.abc import Callable, Mapping
 from copy import deepcopy
+from functools import partial
 
 import pandas as pd
 
@@ -23,7 +25,11 @@ from ..blocks import BLOCK_CATALOGUE, Graph, derive_manifest, graph_from_config,
 from ..blocks.serialize import serialize_catalogue
 from ..core.paths import EXAMPLES_DIR, USER_SCENARIOS_DIR
 from ..config_io import blank_config, build_markets_from_config
-from ..engine import run_simulation, solve_multi_market_scenario, solve_scenario_path
+from ..engine import (
+    run_simulation,
+    solve_multi_market_scenario_with_leg_items,
+    solve_scenario_path,
+)
 from ..model_store import (
     compile_graph_or_raise,
     iter_examples,
@@ -149,6 +155,121 @@ def _participant_entry(row: dict, sector: str) -> dict:
     }
 
 
+# The market-clearing chart samples net demand on this many evenly-spaced price
+# points across [lower, upper]. The SINGLE source of the curve resolution, shared
+# by the flat single-market and the linked (multi-market) result builders so both
+# draw a byte-identical curve.
+_DEMAND_CURVE_POINT_COUNT = 121
+
+
+def _demand_curve(item: dict) -> list[dict]:
+    """Sample a solved market's net demand into the market-clearing chart curve.
+
+    Probes every participant's ``allowance_demand_or_supply`` across a price grid
+    ``[lower, upper]`` — ``lower``/``upper`` from the market's configured price
+    bounds, falling back to ``max(penalty_price) * 1.25`` for the ceiling — at
+    :data:`_DEMAND_CURVE_POINT_COUNT` evenly spaced points, summing per point for
+    the aggregate net-demand line while keeping the per-participant split. This is
+    the EXACT probing the flat single-market loop ran inline; extracted so the
+    linked (multi-market) path draws a byte-identical curve from its surfaced
+    leg market (whose participants carry the link-shifted MAC, so the curve
+    reflects the converged neighbor-price shift automatically).
+
+    Args:
+        item: A solved per-year bundle (``market``, ``starting_bank_balances``,
+            ``expected_future_price``) as yielded by ``solve_scenario_path`` or
+            surfaced per (market, year) by
+            ``solve_multi_market_scenario_with_leg_items``.
+
+    Returns:
+        ``[{"p": price, "total": net_demand, "perPart": [...]}, ...]`` — one dict
+        per grid point, in ascending price order (``_DEMAND_CURVE_POINT_COUNT``
+        of them).
+    """
+    market = item["market"]
+    starting_bank_balances = item["starting_bank_balances"]
+    expected_future_price = item["expected_future_price"]
+    lower = market.price_lower_bound if market.price_lower_bound is not None else 0.0
+    upper = (
+        market.price_upper_bound
+        if market.price_upper_bound is not None
+        else max(participant.penalty_price for participant in market.participants) * 1.25
+    )
+    demand_curve: list[dict] = []
+    for step in range(_DEMAND_CURVE_POINT_COUNT):
+        probe = lower + (upper - lower) * (step / (_DEMAND_CURVE_POINT_COUNT - 1))
+        per_part = [
+            participant.allowance_demand_or_supply(
+                probe,
+                starting_bank_balance=float(starting_bank_balances.get(participant.name, 0.0)),
+                expected_future_price=expected_future_price,
+                banking_allowed=market.banking_allowed,
+                borrowing_allowed=market.borrowing_allowed,
+                borrowing_limit=market.borrowing_limit,
+            )
+            for participant in market.participants
+        ]
+        demand_curve.append(
+            {
+                "p": probe,
+                "total": sum(per_part),
+                "perPart": per_part,
+            }
+        )
+    return demand_curve
+
+
+def _solved_market_result(item: dict, sector_for: Callable[[str], str]) -> dict:
+    """Build one market-year's frontend result dict from a solved path bundle.
+
+    The single builder behind BOTH the flat single-market results and the linked
+    (multi-market) results, so the market-clearing chart, auction KPIs, and
+    per-participant panel are produced by identical code — the flat and linked
+    curves can never drift. The only per-caller difference is sector resolution,
+    injected as ``sector_for`` (flat: ``_lookup_sector`` on the scenario config;
+    linked: the per-market body-derived sector map).
+
+    Args:
+        item: A solved per-year bundle (``market``, ``equilibrium``,
+            ``expected_future_price``, ``starting_bank_balances``,
+            ``participant_df``) — ``solve_scenario_path``'s yield shape, whether
+            produced flat or surfaced from a linked solve.
+        sector_for: ``participant_name -> sector`` label resolver.
+
+    Returns:
+        The frontend result dict (``price``, auction KPIs, ``perParticipant``,
+        and the :data:`_DEMAND_CURVE_POINT_COUNT`-point ``demandCurve``).
+    """
+    market = item["market"]
+    equilibrium = item["equilibrium"]
+    expected_future_price = item["expected_future_price"]
+    price = float(equilibrium["price"])
+    participant_rows = item["participant_df"].to_dict(orient="records")
+    return {
+        "price": price,
+        "Q": float(equilibrium["auction_sold"]),
+        "auctionOffered": float(equilibrium["auction_offered"]),
+        "auctionSold": float(equilibrium["auction_sold"]),
+        "unsoldAllowances": float(equilibrium["unsold_allowances"]),
+        "auctionCoverageRatio": float(equilibrium["coverage_ratio"]),
+        "expectationRule": market.expectation_rule,
+        "manualExpectedPrice": market.manual_expected_price,
+        "expectedFuturePrice": expected_future_price,
+        "totalAbate": float(sum(row["Abatement"] for row in participant_rows)),
+        "totalTraded": float(
+            sum(max(0.0, row["Net Allowances Traded"]) for row in participant_rows)
+        ),
+        "revenue": float(
+            market.calculate_auction_revenue(price, float(equilibrium["auction_sold"]))
+        ),
+        "analysis": None,
+        "perParticipant": [
+            _participant_entry(row, sector_for(row["Participant"])) for row in participant_rows
+        ],
+        "demandCurve": _demand_curve(item),
+    }
+
+
 # D2 joint-equilibrium convergence diagnostics — stamped by dispatch ONLY on
 # cyclic-SCC summary rows (mirror of ets.mcp.compact._JOINT_COLUMNS). PRESENCE is
 # the signal (a non-converged SCC stamps ``Joint Converged = 0.0``); an
@@ -205,16 +326,31 @@ def _multi_market_meta(scenario: dict) -> dict[tuple[str, str], dict]:
     return meta
 
 
+def _sector_from_map(sectors: Mapping[str, str], participant_name: str) -> str:
+    """Sector label for a participant from a linked market's body-derived map.
+
+    The linked-run counterpart of ``_lookup_sector`` (which reads a flat
+    scenario's config): ``sectors`` comes from ``_multi_market_meta``'s per-market
+    body map. Unknown participant → ``"Other"`` (the shared default).
+    """
+    return sectors.get(str(participant_name), "Other")
+
+
 def _multi_market_result(summary_row: dict, participant_rows: list[dict], entry_meta: dict) -> dict:
-    """Build one composite ``scenario :: market`` year result from solved frames.
+    """FALLBACK result for a composite ``scenario :: market`` year — schematic curve.
+
+    Reached ONLY when the multi-market solve surfaced no solved leg market for a
+    (market, year) — a genuinely-missing ``CarbonMarket`` object. A solved market
+    goes through :func:`_solved_market_result` on its surfaced leg market instead,
+    which draws the real ``_DEMAND_CURVE_POINT_COUNT``-point curve identical to a
+    flat run.
 
     Same result shape as the flat ``solve_scenario_path`` detail loop, sourced
-    from the ``solve_multi_market_scenario`` summary/participant frames (which the
-    joint solver returns instead of the per-market MAC objects a 121-point demand
-    curve is drawn from). The KPIs carry the exact joint price/revenue; the
-    market-clearing chart gets the same TWO-point schematic demand curve the
-    frontend's ``buildDraftResult`` fallback uses — a flat net-demand line the
-    solved equilibrium dot sits on — rather than a fabricated curve shape.
+    from the ``solve_multi_market_scenario`` summary/participant frames. The KPIs
+    carry the exact joint price/revenue; the market-clearing chart gets the TWO-
+    point schematic demand curve the frontend's ``buildDraftResult`` fallback uses
+    — a flat net-demand line the solved equilibrium dot sits on — rather than a
+    fabricated curve shape.
     """
     sectors = entry_meta.get("sectors", {})
     per_participant = [
@@ -260,6 +396,7 @@ def _collect_multi_market_results(
     participant_df: pd.DataFrame,
     scenario: dict,
     by_scenario: dict,
+    leg_items: Mapping[str, Mapping[str, dict]],
 ) -> None:
     """Populate ``by_scenario`` with a linked scenario's per-(market, year) results.
 
@@ -267,6 +404,23 @@ def _collect_multi_market_results(
     (the ``Scenario`` column of both frames), so the frontend — which flattens the
     same linked scenario into one pseudo-scenario per market whose ``name`` is that
     composite — looks each market's result up by name exactly as it does a flat run.
+
+    For each (market, year) the joint solve surfaced a solved leg market for
+    (``leg_items[composite][year]`` — the link-shifted ``CarbonMarket`` at the
+    converged neighbor prices), the result is built by :func:`_solved_market_result`
+    — the SAME builder the flat single-market loop uses — so its market-clearing
+    chart is the real ``_DEMAND_CURVE_POINT_COUNT``-point demand curve, reflecting
+    the link shift. Only a genuinely-missing leg market falls back to the
+    two-point schematic (:func:`_multi_market_result`).
+
+    Args:
+        summary_df: The linked scenario's summary frame (fallback KPIs).
+        participant_df: The linked scenario's participant frame (drives the
+            per-(market, year) enumeration and the fallback per-participant rows).
+        scenario: The raw linked scenario dict (per-market sector/price-bound meta).
+        by_scenario: Mutable result accumulator, keyed by composite then year.
+        leg_items: ``{composite: {year_label: solved item}}`` surfaced by
+            ``solve_multi_market_scenario_with_leg_items``.
     """
     if participant_df.empty:
         return
@@ -282,9 +436,16 @@ def _collect_multi_market_results(
     for (composite, year_label), participant_rows in grouped.items():
         market_id = composite.rsplit(" :: ", 1)[1] if " :: " in composite else ""
         entry_meta = meta.get((market_id, year_label), {})
-        result = _multi_market_result(
-            summary_by_key.get((composite, year_label), {}), participant_rows, entry_meta
-        )
+        item = leg_items.get(composite, {}).get(year_label)
+        if item is not None:
+            # Solved leg market in hand → the real curve, identical to a flat run.
+            sectors = entry_meta.get("sectors", {})
+            result = _solved_market_result(item, partial(_sector_from_map, sectors))
+        else:
+            # Genuinely-missing leg market → the two-point schematic fallback.
+            result = _multi_market_result(
+                summary_by_key.get((composite, year_label), {}), participant_rows, entry_meta
+            )
         by_scenario.setdefault(composite, {})[year_label] = result
 
 
@@ -293,9 +454,9 @@ def _build_dashboard_payload(config: dict) -> dict:
     all_scenarios = frontend_config.get("scenarios", [])
     # A linked (multi-market / joint-equilibrium) scenario carries a ``markets``
     # key that ``build_markets_from_config`` refuses — it is solved by
-    # ``solve_multi_market_scenario`` instead (D2-7). Flat single-market scenarios
-    # stay on the byte-identical legacy builder, so a run with NO ``markets``
-    # scenario is built, solved, and serialized EXACTLY as before this change.
+    # ``solve_multi_market_scenario_with_leg_items`` instead (D2-7). Flat single-
+    # market scenarios stay on the byte-identical legacy builder, so a run with NO
+    # ``markets`` scenario is built, solved, and serialized EXACTLY as before.
     flat_scenarios = [s for s in all_scenarios if "markets" not in s]
     multi_scenarios = [s for s in all_scenarios if "markets" in s]
     flat_markets = (
@@ -316,17 +477,22 @@ def _build_dashboard_payload(config: dict) -> dict:
     ets_logger.addHandler(_log_handler)
     summary_frames: list[pd.DataFrame] = []
     participant_frames: list[pd.DataFrame] = []
-    multi_frames: list[tuple[dict, pd.DataFrame, pd.DataFrame]] = []
+    # Each linked scenario carries its solved leg markets alongside the frames,
+    # so _collect_multi_market_results draws the same 121-point demand curve the
+    # flat path draws (dispatch retains + surfaces the already-solved objects).
+    multi_frames: list[tuple[dict, pd.DataFrame, pd.DataFrame, dict[str, dict[str, dict]]]] = []
     try:
         if flat_markets:
             flat_summary_df, flat_participant_df = run_simulation(flat_markets)
             summary_frames.append(flat_summary_df)
             participant_frames.append(flat_participant_df)
         for scenario in multi_scenarios:
-            m_summary_df, m_participant_df = solve_multi_market_scenario(scenario)
+            m_summary_df, m_participant_df, m_leg_items = (
+                solve_multi_market_scenario_with_leg_items(scenario)
+            )
             summary_frames.append(m_summary_df)
             participant_frames.append(m_participant_df)
-            multi_frames.append((scenario, m_summary_df, m_participant_df))
+            multi_frames.append((scenario, m_summary_df, m_participant_df, m_leg_items))
     finally:
         pe_logger.removeHandler(_log_handler)
         ets_logger.removeHandler(_log_handler)
@@ -346,77 +512,20 @@ def _build_dashboard_payload(config: dict) -> dict:
         )
         for item in solve_scenario_path(ordered_markets):
             market = item["market"]
-            expected_future_price = item["expected_future_price"]
-            starting_bank_balances = item["starting_bank_balances"]
-            equilibrium = item["equilibrium"]
-            price = float(equilibrium["price"])
-            participant_rows = item["participant_df"].to_dict(orient="records")
-            demand_curve = []
-            lower = market.price_lower_bound if market.price_lower_bound is not None else 0.0
-            upper = (
-                market.price_upper_bound
-                if market.price_upper_bound is not None
-                else max(participant.penalty_price for participant in market.participants) * 1.25
-            )
-            point_count = 121
-            for step in range(point_count):
-                probe = lower + (upper - lower) * (step / (point_count - 1))
-                per_part = [
-                    participant.allowance_demand_or_supply(
-                        probe,
-                        starting_bank_balance=float(
-                            starting_bank_balances.get(participant.name, 0.0)
-                        ),
-                        expected_future_price=expected_future_price,
-                        banking_allowed=market.banking_allowed,
-                        borrowing_allowed=market.borrowing_allowed,
-                        borrowing_limit=market.borrowing_limit,
-                    )
-                    for participant in market.participants
-                ]
-                demand_curve.append(
-                    {
-                        "p": probe,
-                        "total": sum(per_part),
-                        "perPart": per_part,
-                    }
-                )
-
-            result = {
-                "price": price,
-                "Q": float(equilibrium["auction_sold"]),
-                "auctionOffered": float(equilibrium["auction_offered"]),
-                "auctionSold": float(equilibrium["auction_sold"]),
-                "unsoldAllowances": float(equilibrium["unsold_allowances"]),
-                "auctionCoverageRatio": float(equilibrium["coverage_ratio"]),
-                "expectationRule": market.expectation_rule,
-                "manualExpectedPrice": market.manual_expected_price,
-                "expectedFuturePrice": expected_future_price,
-                "totalAbate": float(sum(row["Abatement"] for row in participant_rows)),
-                "totalTraded": float(
-                    sum(max(0.0, row["Net Allowances Traded"]) for row in participant_rows)
-                ),
-                "revenue": float(
-                    market.calculate_auction_revenue(price, float(equilibrium["auction_sold"]))
-                ),
-                "analysis": None,
-                "perParticipant": [
-                    _participant_entry(
-                        row,
-                        _lookup_sector(
-                            frontend_config, market.scenario_name, market.year, row["Participant"]
-                        ),
-                    )
-                    for row in participant_rows
-                ],
-                "demandCurve": demand_curve,
-            }
+            # Flat sector resolution: _lookup_sector on the scenario config,
+            # bound to this market's scenario/year. The linked path binds
+            # _sector_from_map on the body map instead — the ONLY per-caller
+            # difference; the KPIs and the 121-point curve are identical code.
+            sector_for = partial(_lookup_sector, frontend_config, market.scenario_name, market.year)
+            result = _solved_market_result(item, sector_for)
             by_scenario.setdefault(market.scenario_name, {})[str(market.year or "Base Year")] = (
                 result
             )
 
-    for scenario, m_summary_df, m_participant_df in multi_frames:
-        _collect_multi_market_results(m_summary_df, m_participant_df, scenario, by_scenario)
+    for scenario, m_summary_df, m_participant_df, m_leg_items in multi_frames:
+        _collect_multi_market_results(
+            m_summary_df, m_participant_df, scenario, by_scenario, m_leg_items
+        )
 
     # Records are built PER FRAME (not from the concatenated frame) so a flat
     # summary row never inherits a NaN ``Joint *`` column from a cyclic frame;

@@ -539,13 +539,82 @@ def _solve_market_leg(
 
 def _delivered_path(path_details: list[dict]) -> dict[str, float]:
     """Extract ``{year_label: delivered_price}`` from a solved path (the E4 signal)."""
-    return {
-        str(item["market"].year): float(item["equilibrium"]["price"])
-        for item in path_details
-    }
+    return {str(item["market"].year): float(item["equilibrium"]["price"]) for item in path_details}
 
 
-def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _surface_leg_items(
+    scenario_name: str,
+    declared_ids: Sequence[str],
+    leg_paths: Mapping[str, list[dict]],
+) -> dict[str, dict[str, dict]]:
+    """Group each market's solved path details into ``{composite: {year: item}}``.
+
+    A REPORTING projection (no solve): re-keys the per-market solved detail lists
+    already produced by the multi-market solve into the same shape the flat
+    ``solve_scenario_path`` loop yields, so the web layer draws the identical
+    121-point demand curve for a linked market as for a single one. Each ``item``
+    is the untouched per-year bundle (``market`` — the link-shifted
+    ``CarbonMarket`` at converged neighbor prices — ``equilibrium``,
+    ``expected_future_price``, ``starting_bank_balances``, ``participant_df``).
+
+    Keyed by the composite grouping name ``"{scenario} :: {market_id}"`` (the
+    ``Scenario`` column both frames carry) and, within, by ``str(market.year)``
+    — the exact string the participant frames carry in their ``"Year"`` column,
+    so the web layer's per-(composite, year) lookup lands. REPORTED in
+    declaration order (spec §3) to mirror the frames.
+
+    Args:
+        scenario_name: The scenario's grouping name.
+        declared_ids: Market ids in declaration order (the reporting order).
+        leg_paths: ``{market_id: [per-year detail dict, ...]}`` — the solved leg
+            markets, one list per market (absent id ⇒ empty year map).
+
+    Returns:
+        ``{"{scenario} :: {market_id}": {year_label: item}}`` for every declared
+        market id.
+    """
+    surfaced: dict[str, dict[str, dict]] = {}
+    for market_id in declared_ids:
+        composite = f"{scenario_name} :: {market_id}"
+        surfaced[composite] = {
+            str(item["market"].year): item for item in leg_paths.get(market_id, [])
+        }
+    return surfaced
+
+
+def solve_multi_market_scenario(
+    scenario: Mapping[str, object],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Solve one linked (multi-market) scenario — the reporting-frames surface.
+
+    Thin 2-tuple wrapper over :func:`solve_multi_market_scenario_with_leg_items`
+    (which does all the solving) that drops the third element — the surfaced
+    solved leg-market bundle. Kept BYTE-IDENTICAL to the pre-enrichment public
+    entry: every existing caller (``run_simulation_from_config``, the golden
+    harness, the D2-3 dispatch tests) sees the exact same ``(summary_df,
+    participant_df)`` pair. The web layer, which needs the per-market solved
+    ``CarbonMarket`` objects to draw a real 121-point demand curve, calls the
+    three-value function instead.
+
+    Args:
+        scenario: A raw multi-market scenario dict (``markets``/``links``; an
+            optional ``joint_solver`` block tunes the cyclic outer loop).
+
+    Returns:
+        ``(summary_df, participant_df)`` — identical to
+        :func:`solve_multi_market_scenario_with_leg_items`'s first two returns.
+
+    Raises:
+        ValueError: Every error the delegate raises (E7 events, E8 horizon,
+            ``model_approach "all"``, link/body validation).
+    """
+    summary_df, participant_df, _leg_items = solve_multi_market_scenario_with_leg_items(scenario)
+    return summary_df, participant_df
+
+
+def solve_multi_market_scenario_with_leg_items(
+    scenario: Mapping[str, object],
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, dict[str, dict]]]:
     """Solve one linked (multi-market) scenario — acyclic DAG or cyclic joint SCC.
 
     The D1-3 multi-market dispatch (``docs/platform-spec-d0-d1.md`` §2d, §3, §7),
@@ -578,12 +647,27 @@ def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.Data
             optional ``joint_solver`` block tunes the cyclic outer loop).
 
     Returns:
-        ``(summary_df, participant_df)`` — rows in declaration order of the
-        markets, each summary row carrying the guarded ``"Market"`` column and,
-        for a market with inbound links, per-(from,to) ``"Link ... Price In"``
-        and per-(from,to,channel) ``"Link ... Input Shift"`` diagnostic columns.
-        Cyclic-SCC market rows ALSO carry the four ``"Joint *"`` columns
-        (key-presence guarded — acyclic rows never gain them).
+        ``(summary_df, participant_df, leg_items)``:
+
+        * ``summary_df``, ``participant_df`` — rows in declaration order of the
+          markets, each summary row carrying the guarded ``"Market"`` column and,
+          for a market with inbound links, per-(from,to) ``"Link ... Price In"``
+          and per-(from,to,channel) ``"Link ... Input Shift"`` diagnostic columns.
+          Cyclic-SCC market rows ALSO carry the four ``"Joint *"`` columns
+          (key-presence guarded — acyclic rows never gain them). These two frames
+          (and the solved prices / ``Joint *`` columns they carry) are UNCHANGED
+          by the leg-item surfacing — it retains already-solved objects, it does
+          not re-solve or perturb the solve.
+        * ``leg_items`` — the ADDITIONAL surfaced structure (D-curve enrichment):
+          ``{"{scenario} :: {market_id}": {year_label: item}}``, where each
+          ``item`` is the solved per-year bundle matching
+          :func:`~pe.engine.solve_scenario_path`'s yield (``market`` — the
+          link-shifted ``CarbonMarket`` at the converged neighbor prices —
+          ``equilibrium``, ``expected_future_price``, ``starting_bank_balances``,
+          ``participant_df``). Same composite grouping key as the frames; the
+          ``item["participant_df"]`` is the SAME object appended to
+          ``participant_df``. Lets the web layer draw the identical 121-point
+          demand curve it draws for a flat single-market run.
 
     Raises:
         ValueError: policy events present (E7); an E8 horizon violation;
@@ -638,6 +722,11 @@ def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.Data
     solved_delivered_paths: dict[str, dict[str, float]] = {}
     leg_summaries: dict[str, list[dict]] = {}
     leg_frames: dict[str, list[pd.DataFrame]] = {}
+    # The solved per-year detail dicts per market — the link-shifted CarbonMarket
+    # + equilibrium bundle a 121-point demand curve is drawn from. Retained here
+    # (already in hand from the solve) and surfaced as the third return; touching
+    # neither the summaries nor the frames above.
+    leg_paths: dict[str, list[dict]] = {}
 
     for market_id in topo_ids:
         composite = f"{scenario_name} :: {market_id}"
@@ -656,9 +745,12 @@ def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.Data
         local_summaries: list[dict] = []
         local_frames: list[pd.DataFrame] = []
         _collect_path_results(ordered, path, local_summaries, local_frames)
-        _stamp_multi_market_columns(local_summaries, path, market_id, inbound, solved_delivered_paths)
+        _stamp_multi_market_columns(
+            local_summaries, path, market_id, inbound, solved_delivered_paths
+        )
         leg_summaries[market_id] = local_summaries
         leg_frames[market_id] = local_frames
+        leg_paths[market_id] = path
 
     # SOLVE topological, REPORT in declaration order (spec §3).
     scenario_summaries: list[dict] = []
@@ -669,7 +761,8 @@ def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.Data
 
     summary_df = pd.DataFrame.from_records(scenario_summaries)
     participant_df = pd.concat(participant_frames, ignore_index=True)
-    return summary_df, participant_df
+    leg_items = _surface_leg_items(scenario_name, declared_ids, leg_paths)
+    return summary_df, participant_df, leg_items
 
 
 def _adoption_state_to_config(state: AdoptionState) -> list[dict[str, str]]:
@@ -856,6 +949,7 @@ def _solve_cyclic_scc(
     solved_delivered_paths: dict[str, dict[str, float]],
     leg_summaries: dict[str, list[dict]],
     leg_frames: dict[str, list[pd.DataFrame]],
+    leg_paths: dict[str, list[dict]],
     joint_settings: Mapping[str, object] | None,
 ) -> None:
     r"""Solve one cyclic SCC via the joint outer loop; collect + stamp its members.
@@ -913,6 +1007,11 @@ def _solve_cyclic_scc(
             prices.
         leg_summaries: Mutable per-market summary rows (extended in place).
         leg_frames: Mutable per-market participant frames (extended in place).
+        leg_paths: Mutable per-member solved detail lists (extended in place) —
+            the reporting re-solve's link-shifted-CarbonMarket bundles at the
+            converged prices, surfaced for the web demand curve. Written from the
+            SAME ``path`` the frames are collected from, so it carries the
+            converged fixed-point objects and nothing the frames do not.
         joint_settings: The normalized ``joint_solver`` settings, or ``None`` for
             the engine defaults (``docs/joint-equilibrium-plan.md`` §4).
     """
@@ -995,6 +1094,9 @@ def _solve_cyclic_scc(
             summary_row.update(joint_cols)
         leg_summaries[member] = local_summaries
         leg_frames[member] = local_frames
+        # Retain the converged-price re-solve's leg markets for the web demand
+        # curve (same ``path`` the frames above were collected from).
+        leg_paths[member] = path
 
 
 def _solve_cyclic_multi_market(
@@ -1004,15 +1106,15 @@ def _solve_cyclic_multi_market(
     declared_ids: Sequence[str],
     bodies_by_id: Mapping[str, dict],
     links: Sequence[LinkSpec],
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, dict[str, dict]]]:
     """Solve a multi-market scenario containing >=1 cyclic SCC (the joint path).
 
     Walks the SCCs in condensation order (upstream first): a size-1 acyclic SCC
     solves EXACTLY as D1 (against already-solved upstream paths, NO ``Joint *``
     columns); a cyclic SCC goes through :func:`_solve_cyclic_scc`. Reports in
     declaration order (spec §3) while solving in condensation order. Only reached
-    when the acyclic guard in :func:`solve_multi_market_scenario` fails, so the
-    all-acyclic golden path never enters here.
+    when the acyclic guard in :func:`solve_multi_market_scenario_with_leg_items`
+    fails, so the all-acyclic golden path never enters here.
 
     Args:
         scenario: The raw multi-market scenario (read for the ``joint_solver``
@@ -1024,8 +1126,11 @@ def _solve_cyclic_multi_market(
         links: The scenario's links.
 
     Returns:
-        ``(summary_df, participant_df)`` — rows in declaration order; cyclic-SCC
-        rows carry the four ``Joint *`` columns, acyclic rows do not.
+        ``(summary_df, participant_df, leg_items)`` — the frames in declaration
+        order (cyclic-SCC rows carry the four ``Joint *`` columns, acyclic rows
+        do not), plus the surfaced ``{composite: {year: item}}`` solved leg-market
+        bundle (:func:`_surface_leg_items`); frames and prices unchanged by the
+        surfacing.
     """
     from ..config_io import normalize_joint_solver
 
@@ -1037,12 +1142,22 @@ def _solve_cyclic_multi_market(
     solved_delivered_paths: dict[str, dict[str, float]] = {}
     leg_summaries: dict[str, list[dict]] = {}
     leg_frames: dict[str, list[pd.DataFrame]] = {}
+    # Solved per-year detail dicts per market (cyclic: from the converged-price
+    # reporting re-solve; acyclic: from the D1 leg) — surfaced for the web curve.
+    leg_paths: dict[str, list[dict]] = {}
 
     for scc in sccs:
         if scc.cyclic:
             _solve_cyclic_scc(
-                scc, scenario_name, bodies_by_id, links,
-                solved_delivered_paths, leg_summaries, leg_frames, joint_settings,
+                scc,
+                scenario_name,
+                bodies_by_id,
+                links,
+                solved_delivered_paths,
+                leg_summaries,
+                leg_frames,
+                leg_paths,
+                joint_settings,
             )
             continue
         # Size-1 acyclic SCC — the byte-identical D1 leg (no Joint columns). No
@@ -1057,9 +1172,12 @@ def _solve_cyclic_multi_market(
         local_frames: list[pd.DataFrame] = []
         _collect_path_results(ordered, path, local_summaries, local_frames)
         inbound = [link for link in links if link.to_market == market_id]
-        _stamp_multi_market_columns(local_summaries, path, market_id, inbound, solved_delivered_paths)
+        _stamp_multi_market_columns(
+            local_summaries, path, market_id, inbound, solved_delivered_paths
+        )
         leg_summaries[market_id] = local_summaries
         leg_frames[market_id] = local_frames
+        leg_paths[market_id] = path
 
     # SOLVE in condensation order, REPORT in declaration order (spec §3).
     scenario_summaries: list[dict] = []
@@ -1070,7 +1188,8 @@ def _solve_cyclic_multi_market(
 
     summary_df = pd.DataFrame.from_records(scenario_summaries)
     participant_df = pd.concat(participant_frames, ignore_index=True)
-    return summary_df, participant_df
+    leg_items = _surface_leg_items(scenario_name, declared_ids, leg_paths)
+    return summary_df, participant_df, leg_items
 
 
 def _stamp_multi_market_columns(
