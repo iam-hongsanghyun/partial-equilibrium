@@ -44,11 +44,16 @@ from ..core.ledger import (
     market_year_sort_key as _market_year_sort_key,
 )
 
+# Adoption-state (de)serialization for the D2-5 cyclic-SCC investment FLOOR.
+# core.protocols is T0 (never a feature runtime), so this eager import loads no
+# feature module — activation scoping stays intact (tests/engine/test_lazy_activation.py).
+from ..core.protocols import make_adoption_state, parse_adoption_state
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from ..core.market import CarbonMarket
-    from ..core.protocols import LinkSpec
+    from ..core.protocols import AdoptionState, LinkSpec
     from .scc import SCC
 
 logger = logging.getLogger(__name__)
@@ -667,14 +672,117 @@ def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.Data
     return summary_df, participant_df
 
 
+def _adoption_state_to_config(state: AdoptionState) -> list[dict[str, str]]:
+    """Render an adoption state as the ``investment_initial_adoptions`` list form.
+
+    The inverse of the field ``solve_with_investment_feedback`` reads as
+    ``state_0`` (``getattr(m0, "investment_initial_adoptions")`` →
+    ``parse_adoption_state``). Produces the SAME ``{participant, technology,
+    adoption_year}`` records the splice carrier stamps across policy-event
+    segments, so carrying the cyclic-SCC adoption floor reuses that landing
+    field verbatim (``docs/joint-equilibrium.md`` §4 "reuse the splice-carrier
+    FLOOR").
+
+    Args:
+        state: A canonical ``AdoptionState`` (normalized defensively).
+
+    Returns:
+        A list of ``{participant, technology, adoption_year}`` dicts; ``[]`` for
+        the empty state (falsy → the feedback host treats it as no carry).
+    """
+    return [
+        {
+            "participant": event.participant_name,
+            "technology": event.technology_name,
+            "adoption_year": event.adoption_year,
+        }
+        for event in make_adoption_state(state)
+    ]
+
+
+def _final_adoption_state(path_details: list[dict]) -> AdoptionState:
+    """Read back the adoption state a solved (investment-wrapped) path was under.
+
+    The feedback host stamps ``investment_adoptions`` (a serialized state,
+    effective THROUGH each row's year) on every detail row; the LAST row
+    (latest year) carries the whole state, since every adoption year τ is a
+    price-path year and so ≤ the horizon's last year. Rows without the key
+    (investment not configured for this market) yield the empty state.
+
+    Args:
+        path_details: The solved per-year detail dicts (year order).
+
+    Returns:
+        The canonical ``AdoptionState`` the path was solved under (``()`` when
+        no investment ran).
+    """
+    if path_details and "investment_adoptions" in path_details[-1]:
+        return parse_adoption_state(path_details[-1]["investment_adoptions"])
+    return ()
+
+
+def _enforce_floor_monotone(
+    previous_floor: AdoptionState, new_state: AdoptionState, market_id: str
+) -> None:
+    r"""Assert the across-outer-sweep adoption FLOOR only grows (spec §4).
+
+    The outer-loop analogue of ``feedback._enforce_monotone_one_flip``: an
+    option adopted on an earlier sweep must stay adopted (superset) at its
+    ORIGINAL decision year (no re-dating) on every later sweep — the monotone
+    floor the economist's §4 termination argument rests on (adoptions
+    accumulate, bounded by ΣN_i, then FREEZE → the outer loop becomes a pure
+    price contraction).
+
+    ECONOMIC JUDGMENT CALL (flagged for sign-off): this reuses the superset +
+    no-redate legs of the Phase-1 host check but DROPS its "≤ one new pair per
+    call" leg. That one-flip bound is a WITHIN-sweep invariant of the middle
+    loop (``feedback.solve_with_investment_feedback`` enforces it there); ACROSS
+    sweeps a market whose middle loop crosses several of its options' triggers
+    at the sweep's fixed neighbor prices legitimately adds MORE than one
+    adoption to its floor, so enforcing one-per-sweep here would false-positive
+    on a multi-option market. §4 defines the floor as "monotone across outer
+    iterations" and never bounds per-sweep additions, so the monotone (superset
+    + no-redate) reading is the anchor; the one-flip counter stays where it
+    belongs — inside the middle loop.
+
+    Args:
+        previous_floor: The market's accumulated floor entering this sweep.
+        new_state: The adoption state this sweep's middle loop converged to.
+        market_id: The SCC member id (for error attribution).
+
+    Raises:
+        ValueError: ``new_state`` drops or re-dates a pair in ``previous_floor``
+            (a middle loop violating irreversibility — never repaired silently).
+    """
+    new_year_by_pair = {
+        (event.participant_name, event.technology_name): event.adoption_year for event in new_state
+    }
+    for event in previous_floor:
+        pair = (event.participant_name, event.technology_name)
+        if pair not in new_year_by_pair:
+            raise ValueError(
+                f"joint investment: SCC member {market_id!r} DROPPED adopted pair "
+                f"{pair} across an outer sweep — the adoption floor is monotone "
+                "(once adopted, never un-adopted; docs/joint-equilibrium.md §4)."
+            )
+        if new_year_by_pair[pair] != event.adoption_year:
+            raise ValueError(
+                f"joint investment: SCC member {market_id!r} RE-DATED adopted pair "
+                f"{pair} from {event.adoption_year!r} to {new_year_by_pair[pair]!r} "
+                "across an outer sweep — adoption years are written once (§4)."
+            )
+
+
 def _solve_scc_member(
     market_id: str,
     composite_scenario_name: str,
     bodies_by_id: Mapping[str, dict],
     links: Sequence[LinkSpec],
     delivered_paths: Mapping[str, Mapping[str, float]],
-) -> tuple[list[CarbonMarket], list[dict]]:
-    """Solve one SCC member against a combined delivered-paths map (D2-3 hook body).
+    *,
+    adoption_floor: AdoptionState | None = None,
+) -> tuple[list[CarbonMarket], list[dict], AdoptionState]:
+    r"""Solve one SCC member against a combined delivered-paths map (D2-3/D2-5 seam).
 
     Builds the market's ``CarbonMarket`` list, applies its inbound links, and
     runs the SAME per-approach ``_solve_market_leg`` the acyclic D1 path runs.
@@ -683,9 +791,24 @@ def _solve_scc_member(
     contribution is omitted — which reproduces the blessed V-D2-1 one-way seed
     (forward links normal, cycle-closing back-links cut,
     ``docs/joint-equilibrium.md`` §6). At the final converged re-solve every
-    sibling price is present, so no link is cut. This is the closure the joint
-    outer loop injects, and the same structured seam D2-5 will wrap with the
-    investment-adoption middle loop (NOT implemented here).
+    sibling price is present, so no link is cut.
+
+    D2-5 investment nesting (``docs/joint-equilibrium.md`` §4, V-D2-4). When
+    ``adoption_floor`` is given (the cyclic path, on every sweep after the
+    first), it is stamped into ``investment_initial_adoptions`` on the built
+    markets, so this sweep's investment MIDDLE loop
+    (``feedback.solve_with_investment_feedback``, run inside ``_solve_market_leg``
+    when the market is investment-configured) starts from the outer-accumulated
+    FLOOR rather than the config seed — the reused splice-carrier landing field.
+    The middle loop then runs Phase 1 verbatim against THIS sweep's neighbor
+    prices (already compiled into the shifted markets by ``apply_inbound_links``),
+    adopting only ABOVE the floor. The adoption state the path was solved under
+    is returned as the third element so the caller can accumulate the floor.
+
+    ``adoption_floor=None`` (the ACYCLIC path: size-1 SCC members, and the
+    single-market ``_solve_market_leg`` route) leaves ``investment_initial_adoptions``
+    at its config value — byte-identical to Phase 1 (proven by the acyclic
+    inertness control test).
 
     Args:
         market_id: The SCC member being solved.
@@ -694,20 +817,35 @@ def _solve_scc_member(
         links: The scenario's links (only this market's inbound ones apply).
         delivered_paths: ``{market_id: {year: price}}`` — the frozen upstream
             paths unioned with the SCC's in-flight working paths.
+        adoption_floor: The outer-accumulated monotone adoption floor to seed
+            this sweep's middle loop with (kw-only); ``None`` leaves the config
+            seed untouched (the acyclic / Phase-1 path).
 
     Returns:
-        ``(ordered_markets, path_details)`` — as :func:`_solve_market_leg`.
+        ``(ordered_markets, path_details, final_state)`` — the first two as
+        :func:`_solve_market_leg`; ``final_state`` is the adoption state the
+        path was solved under (``()`` when no investment ran).
     """
     from .links import apply_inbound_links
 
     base_markets = _build_leg_markets(bodies_by_id[market_id], composite_scenario_name)
+    if adoption_floor is not None:
+        # Carry the outer-sweep floor into the middle loop via the SAME field the
+        # splice carrier lands on (§4). Empty floor -> [] -> falsy -> config seed.
+        seed = _adoption_state_to_config(adoption_floor)
+        for market in base_markets:
+            # setattr (not a typed attribute write): CarbonMarket carries the
+            # investment fields dynamically — this file reads them via getattr,
+            # so it writes via setattr symmetrically (no new mypy attr-defined).
+            setattr(market, "investment_initial_adoptions", seed)  # noqa: B010
     inbound = [
         link
         for link in links
         if link.to_market == market_id and delivered_paths.get(link.from_market)
     ]
     shifted = apply_inbound_links(market_id, base_markets, inbound, delivered_paths)
-    return _solve_market_leg(shifted, composite_scenario_name, market_id)
+    ordered, path = _solve_market_leg(shifted, composite_scenario_name, market_id)
+    return ordered, path, _final_adoption_state(path)
 
 
 def _solve_cyclic_scc(
@@ -720,16 +858,50 @@ def _solve_cyclic_scc(
     leg_frames: dict[str, list[pd.DataFrame]],
     joint_settings: Mapping[str, object] | None,
 ) -> None:
-    """Solve one cyclic SCC via the joint outer loop; collect + stamp its members.
+    r"""Solve one cyclic SCC via the joint outer loop; collect + stamp its members.
 
     Hands the SCC to ``engine.joint.solve_joint_scc`` with an injected
     per-market closure (``_solve_scc_member`` combined with the frozen upstream
-    paths and the SCC's in-flight working paths — the D2-3 hook, also D2-5's
-    investment seam). After convergence, freezes the fixed-point prices into
-    ``solved_delivered_paths`` and RE-SOLVES each member once against those
-    converged sibling prices to collect its full result frames (``T_m(P*) = P*``
-    at the fixed point, ``docs/joint-equilibrium.md`` §1), then stamps the four
-    guarded ``Joint *`` columns on every one of that member's rows.
+    paths and the SCC's in-flight working paths — the D2-3 hook, now carrying
+    D2-5's investment MIDDLE loop). After convergence, freezes the fixed-point
+    prices into ``solved_delivered_paths`` and RE-SOLVES each member once against
+    those converged sibling prices AND the converged adoption floor to collect
+    its full result frames (``T_m(P*) = P*`` at the fixed point,
+    ``docs/joint-equilibrium.md`` §1), then stamps the four guarded ``Joint *``
+    columns on every one of that member's rows.
+
+    Algorithm:
+        MIDDLE-inside-OUTER with adoption-as-outer-FLOOR (V-D2-4, §4). Let
+        ``T_m`` be market m's investment-wrapped path solve (the Phase-1 middle
+        loop) and ``A_m^{k}`` its accumulated adoption floor entering outer
+        sweep k. Each sweep runs the middle loop from the floor against the
+        current neighbor prices, then MONOTONELY accumulates:
+
+        LaTeX:
+        $$ \big(P_m^{k},\,A_m^{k}\big) \;=\; T_m\!\big(P_{n}^{\,\cdot};\,
+             A_m^{k-1}\big), \qquad
+           A_m^{k-1} \subseteq A_m^{k} \subseteq \bigcup_i N_i , $$
+        $$ A_m^{k} \equiv A_m^{k-1}\ \forall m \;\Longrightarrow\;
+           \text{floor frozen} \;\Rightarrow\; \text{outer loop is a pure}
+           \text{ price contraction (eventually-continuous termination).} $$
+
+        ASCII fallback:
+            floor[m] = config seed (first sweep) ; monotone across sweeps
+            each outer sweep k, each member m in sweep order:
+                path_m = investment_wrapped_solve(m, neighbor prices, seed=floor[m])
+                A_m    = adoption state path_m was solved under   # >= floor[m]
+                assert A_m superset floor[m], no re-date          # host check
+                floor[m] = A_m                                    # accumulate
+            floor grows only finitely (bounded by union of N_i) then FREEZES;
+            above the frozen floor joint.py's damped price contraction runs.
+
+        Symbols (units):
+            P_m^k     : member m's delivered price path at outer sweep k
+                        [currency_m/unit_m]
+            A_m^k     : member m's accumulated adoption floor at sweep k
+                        (set of (participant, technology, τ) pairs) [-]
+            N_i       : the flagged option set of participant i (adoption cap) [-]
+            τ         : an adoption (decision) year label [yr]
 
     Args:
         scc: The cyclic SCC (``members`` in deterministic sweep order).
@@ -748,6 +920,13 @@ def _solve_cyclic_scc(
 
     members = list(scc.members)
 
+    # Per-member adoption FLOOR carried ACROSS outer sweeps (§4, V-D2-4):
+    # monotone — an option adopted on sweep k stays adopted on sweep k+1. {} ⇒
+    # the first sweep for each member seeds its middle loop from that member's
+    # config ``investment_initial_adoptions`` (adoption_floor=None below), so a
+    # cyclic member with no investment stays byte-identical to D2-3.
+    adoption_floor: dict[str, AdoptionState] = {}
+
     def _solve_one_market(
         market_id: str, scc_working_paths: Mapping[str, Mapping[str, float]]
     ) -> Mapping[str, float]:
@@ -756,7 +935,23 @@ def _solve_cyclic_scc(
         # not-yet-swept siblings are cut inside _solve_scc_member — the seed).
         combined = {**solved_delivered_paths, **scc_working_paths}
         composite = f"{scenario_name} :: {market_id}"
-        _ordered, path = _solve_scc_member(market_id, composite, bodies_by_id, links, combined)
+        prior = adoption_floor.get(market_id)  # None on the first sweep -> config seed
+        _ordered, path, final_state = _solve_scc_member(
+            market_id, composite, bodies_by_id, links, combined, adoption_floor=prior
+        )
+        # Monotone-across-sweeps host check + accumulate the floor (§4). The
+        # middle loop seeded from the floor can only ADD, so this never shrinks;
+        # the check is the belt-and-braces irreversibility guard.
+        previous = adoption_floor.get(market_id, ())
+        _enforce_floor_monotone(previous, final_state, market_id)
+        adoption_floor[market_id] = final_state
+        if len(final_state) != len(previous):
+            logger.debug(
+                "joint investment: member %r floor grew %d -> %d adopted pair(s)",
+                market_id,
+                len(previous),
+                len(final_state),
+            )
         return _delivered_path(path)
 
     settings = joint_settings or {}
@@ -778,8 +973,18 @@ def _solve_cyclic_scc(
     joint_cols = result.report_columns()
     for member in members:
         composite = f"{scenario_name} :: {member}"
-        ordered, path = _solve_scc_member(
-            member, composite, bodies_by_id, links, solved_delivered_paths
+        # Re-solve against the converged sibling prices AND the CONVERGED floor
+        # (§4 PIN: ex-post checks run against the converged joint vector). At a
+        # genuine fixed point the middle loop reproduces the floor (no new
+        # crossing), so the reported price matches the joint price and the
+        # reported adoptions are the equilibrium floor.
+        ordered, path, _final = _solve_scc_member(
+            member,
+            composite,
+            bodies_by_id,
+            links,
+            solved_delivered_paths,
+            adoption_floor=adoption_floor.get(member),
         )
         local_summaries: list[dict] = []
         local_frames: list[pd.DataFrame] = []
@@ -840,10 +1045,11 @@ def _solve_cyclic_multi_market(
                 solved_delivered_paths, leg_summaries, leg_frames, joint_settings,
             )
             continue
-        # Size-1 acyclic SCC — the byte-identical D1 leg (no Joint columns).
+        # Size-1 acyclic SCC — the byte-identical D1 leg (no Joint columns). No
+        # adoption_floor (None) ⇒ Phase-1 investment runs exactly as today.
         (market_id,) = scc.members
         composite = f"{scenario_name} :: {market_id}"
-        ordered, path = _solve_scc_member(
+        ordered, path, _final = _solve_scc_member(
             market_id, composite, bodies_by_id, links, solved_delivered_paths
         )
         solved_delivered_paths[market_id] = _delivered_path(path)
