@@ -77,6 +77,7 @@ packages = [
 "pe.features.hotelling"              = "modules/hotelling/backend"
 "pe.features.msr"                    = "modules/msr/backend"
 "pe.features.nash_cournot"           = "modules/nash_cournot/backend"
+"pe.features.oba"                    = "modules/oba/backend"
 
 [tool.pytest.ini_options]
 # pythonpath=["src"] DROPPED (WO-0): tests import the editable-installed `pe`
