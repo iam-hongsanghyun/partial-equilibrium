@@ -83,6 +83,48 @@ inner 2-cycle would conceal a pathology present with zero links. R37's
 WARNING is necessary but NOT sufficient for banking-cyclic-with-cancel
 SCCs; the inner fix is a hard gate. Shared math, zero shared state.
 
+### 3a. Joint Cycle Detected predicate — RATIFIED with corrections (2026-07-11)
+
+D2-2's executor replaced §3's implied "‖P_k−P_{k−2}‖ ≈ 0" cycle signature
+(which describes only the BOUNDED 2-cycle, λ=−1) with the FOLDING test
+**period-2 iff dist(P_{k−2},P_k) < dist(P_{k−1},P_k)** (per-market relative
+norm, V-D2-3). Economist CONFIRMED (2026-07-11): the folding test is the
+correct operationalization and fixes an error in the §3 prose — under
+Gauss-Seidel the effective iteration eigenvalue is the real loop gain
+g = s_A·s_B·φ_AB·φ_BA (the ±√g Jacobi form does NOT apply), so anchor J2
+at w=1 is a DIVERGING oscillation (λ=−1.5, |λ|>1) whose 2-ago distance is
+small-but-nonzero-and-GROWING, which the ≈0 test never fires on. For a
+real scalar iterate the folding test fires **iff |λ+1| < |λ|, i.e. iff
+λ < −1/2**, partitioning the decision-relevant non-converged set (|λ|≥1)
+exactly: λ ≤ −1 (bounded cycle + diverging oscillation) fires; λ ≥ 1
+(monotone crawl) does not.
+
+**FOUR BINDING CONDITIONS on the ratification (executor MUST satisfy all):**
+1. **Diagnostic-only, NON-TERMINATING.** Cycle detection MUST NOT early-
+   abort the outer loop. The band −1 < λ < −1/2 CONVERGES (|λ|<1) yet
+   folds (λ<−1/2); an early break there would wrongly stamp a convergent
+   SCC `Joint Converged=0`. The loop terminates ONLY on convergence
+   (delta<tol) or the hard cap. **(joint.py currently BREAKS on detection
+   — this is the bug to fix in D2-3: remove the break; derive cycle_period
+   at loop exit.)**
+2. **No latch.** If the run ultimately converges, `Joint Cycle Detected`
+   reads 0 — a transient alternation during descent is NOT a reportable
+   cycle. The period is meaningful only when `Joint Converged=0`.
+3. **Terminal-sweep evaluation.** The flag reflects the asymptotic
+   dominant mode: report period-2 only if folding persisted over the
+   FINAL sweeps before the cap (e.g. fold_run ≥ 2 at cap-exit), not on an
+   early transient.
+4. **v1 scope = period-2 only.** Higher-period or complex-eigenvalue
+   spiral non-convergence in ≥3-market SCCs correctly reports
+   `Joint Converged=0` with NO period (0) — a true non-convergence of a
+   non-period-2 kind, not a false negative. Document this limit.
+
+Regression test to add: an SCC with −1 < λ < −1/2 (converges WITH
+alternation) must return `converged=True, cycle_period=0` — the witness
+for conditions 1 & 2. The existing J2-at-w=0.5 (λ=−0.25) is in the
+non-folding zone and does NOT exercise this; the new test must sit in the
+(−1, −1/2) folding-but-converging band.
+
 ## 4. Investment nesting (V-D2-4) — the equilibrium-concept call
 
 **MIDDLE (adoption) nests INSIDE OUTER (SCC price loop) — forced.** A
