@@ -3,12 +3,11 @@
 Covers ``docs/platform-spec-d0-d1.md`` §2 (PriceLink semantics), §6
 (parameters, all defaults inert) and the plan's D1 COMPAT RULE:
 
-* (a) A single-market scenario (no ``markets`` key) normalizes BYTE-
-  IDENTICALLY to the pre-D1-1 output — a captured-baseline regression over
-  several diverse ``examples/*.json`` files (CLAUDE.md "captured baseline"
-  discipline), proving the refactor that extracted
-  ``config_io.builder._normalize_market_body`` changed nothing observable
-  for the degenerate case.
+* (a) [REMOVED with the example library] The single-market byte-identical
+  captured-baseline regression replayed several deleted ``examples/*.json``
+  files against ``tests/config_io/snapshots/*.normalized.json``; its source
+  configs are gone, so the replay was dropped. The degenerate-case machinery
+  in (b) preserves the refactor guard on a recovered fixture.
 * (b) ``config_io.iter_market_bodies`` returns ``[(None, scenario)]`` for a
   flat scenario and ``[(market_id, body), ...]`` for a hand-built
   multi-market config, in declaration order.
@@ -40,42 +39,24 @@ from pe.config_io import (
     normalize_scenario,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLES_DIR = REPO_ROOT / "examples"
-SNAPSHOT_DIR = Path(__file__).resolve().parent / "snapshots"
-
-SNAPSHOT_STEMS = sorted(
-    p.stem.removesuffix(".normalized") for p in SNAPSHOT_DIR.glob("*.normalized.json")
+# TEST INFRA (not the example library): the canonical minimal competitive
+# scenario recovered under tests/fixtures/ as a generic valid config. The
+# byte-identical single-market baseline replay that used to live here was
+# dropped with the example library it replayed (its source examples are gone);
+# only the degenerate-case machinery below is preserved, re-pointed at the
+# fixture.
+MINIMAL_SCENARIO = (
+    next(p for p in Path(__file__).resolve().parents if p.name == "tests")
+    / "fixtures"
+    / "minimal_scenario.json"
 )
-
-
-# ── (a) single-market normalize output is byte-identical to the captured baseline ──
-
-
-@pytest.mark.parametrize("stem", SNAPSHOT_STEMS)
-def test_single_market_normalize_is_byte_identical_to_baseline(stem: str) -> None:
-    raw = json.loads((EXAMPLES_DIR / f"{stem}.json").read_text())
-    expected = json.loads((SNAPSHOT_DIR / f"{stem}.normalized.json").read_text())
-    # Round-trip through JSON so float repr matches the captured side exactly
-    # (same discipline as tests/test_golden_baselines.py).
-    actual = json.loads(json.dumps(normalize_config(raw)))
-    assert actual == expected, (
-        f"normalize_config('{stem}') drifted from the pre-D1-1 captured baseline — "
-        "the market-body extraction (_normalize_market_body) must be a pure refactor "
-        "for scenarios without a 'markets' key."
-    )
-
-
-def test_snapshot_fixtures_are_not_empty() -> None:
-    """Guard against an accidentally-empty parametrization silently passing."""
-    assert len(SNAPSHOT_STEMS) >= 5
 
 
 # ── (b) iter_market_bodies: degenerate vs multi-market ──────────────────────
 
 
 def test_iter_market_bodies_degenerate_case_yields_none_keyed_scenario() -> None:
-    raw = json.loads((EXAMPLES_DIR / "climate_solutions_basic_linear.json").read_text())
+    raw = json.loads(MINIMAL_SCENARIO.read_text())
     scenario = raw["scenarios"][0]
 
     result = iter_market_bodies(scenario)
@@ -347,9 +328,10 @@ def test_joint_solver_absent_emits_no_key() -> None:
 
 def test_joint_solver_absent_on_flat_single_market_emits_no_key() -> None:
     """A flat single-market scenario likewise never emits a joint_solver key."""
-    flat = {"name": "Flat", **_market_body(
-        [{"name": "P", "initial_emissions": 50.0, "penalty_price": 100.0}]
-    )}
+    flat = {
+        "name": "Flat",
+        **_market_body([{"name": "P", "initial_emissions": 50.0, "penalty_price": 100.0}]),
+    }
     normalized = normalize_scenario(flat)
     assert "joint_solver" not in normalized
 

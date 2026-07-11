@@ -29,7 +29,6 @@ import pytest
 
 from pe.blocks import graph_from_config
 from pe.config_io import load_config
-from pe.core.paths import EXAMPLES_DIR
 from pe.engine import run_simulation_from_config
 from pe.model_store import (
     ModelStoreError,
@@ -43,9 +42,17 @@ from pe.model_store import (
 )
 from pe.registry.config import get_backend_for_directory
 
+# TEST INFRA (not the example library): the canonical minimal competitive
+# scenario recovered under tests/fixtures/ as a generic valid config.
+MINIMAL_SCENARIO = (
+    next(p for p in Path(__file__).resolve().parents if p.name == "tests")
+    / "fixtures"
+    / "minimal_scenario.json"
+)
+
 
 def _sample_graph():
-    config = load_config(EXAMPLES_DIR / "climate_solutions_basic_linear.json")
+    config = load_config(MINIMAL_SCENARIO)
     return graph_from_config(config)
 
 
@@ -90,7 +97,7 @@ def test_save_list_resolve_run_round_trip(tmp_path: Path) -> None:
 
 
 def test_save_config_as_model_falls_back_to_decompiled_graph(tmp_path: Path) -> None:
-    config = load_config(EXAMPLES_DIR / "climate_solutions_basic_linear.json")
+    config = load_config(MINIMAL_SCENARIO)
     saved = save_config_as_model(config, "Bare Config Model", registry_dir=tmp_path)
 
     assert saved.id == "user_bare_config_model"

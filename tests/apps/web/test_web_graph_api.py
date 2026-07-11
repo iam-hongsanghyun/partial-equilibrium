@@ -31,7 +31,11 @@ import pe.web.api as api
 from pe.blocks import BLOCK_CATALOGUE, Graph
 from pe.web.server import app
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "examples"
+# TEST INFRA (not the example library): recovered minimal scenarios under
+# tests/fixtures/. ``FIXTURES_DIR`` is monkeypatched onto ``api.EXAMPLES_DIR``
+# by the cases that need the template picker (``/api/templates``,
+# ``/api/graph/from-template``, ``/api/model-manifest``) to be non-empty.
+FIXTURES_DIR = next(p for p in Path(__file__).resolve().parents if p.name == "tests") / "fixtures"
 
 
 def _call(method: str, path: str, body: bytes = b"", query: str = "") -> tuple[int, dict[str, Any]]:
@@ -60,13 +64,20 @@ def _post_json(path: str, payload: dict) -> tuple[int, dict[str, Any]]:
 
 
 def _basic_linear_graph() -> dict[str, Any]:
-    """A hand-built graph equivalent to examples/climate_solutions_basic_linear.json."""
-    raw = json.loads((EXAMPLES_DIR / "climate_solutions_basic_linear.json").read_text())
+    """A hand-built graph equivalent to tests/fixtures/minimal_scenario.json."""
+    raw = json.loads((FIXTURES_DIR / "minimal_scenario.json").read_text())
     scenario = raw["scenarios"][0]
     years = scenario["years"]
     grid_keys = (
-        "year", "total_cap", "auction_mode", "auction_offered", "reserved_allowances",
-        "carbon_budget", "banking_allowed", "borrowing_allowed", "borrowing_limit",
+        "year",
+        "total_cap",
+        "auction_mode",
+        "auction_offered",
+        "reserved_allowances",
+        "carbon_budget",
+        "banking_allowed",
+        "borrowing_allowed",
+        "borrowing_limit",
     )
     nodes = [
         {
@@ -81,13 +92,25 @@ def _basic_linear_graph() -> dict[str, Any]:
         {"id": "ceil", "block": "price_ceiling", "params": {"price_upper_bound": 250.0}},
     ]
     edges = [
-        {"source": "pf", "sourcePort": "price_formation", "target": "market", "targetPort": "price_formation"},
+        {
+            "source": "pf",
+            "sourcePort": "price_formation",
+            "target": "market",
+            "targetPort": "price_formation",
+        },
         {"source": "ceil", "sourcePort": "policy", "target": "market", "targetPort": "policies"},
     ]
     for index, participant in enumerate(years[0]["participants"]):
         pid = f"p{index}"
         nodes.append({"id": pid, "block": "participant", "params": {"order": index, **participant}})
-        edges.append({"source": pid, "sourcePort": "compliance", "target": "market", "targetPort": "participants"})
+        edges.append(
+            {
+                "source": pid,
+                "sourcePort": "compliance",
+                "target": "market",
+                "targetPort": "participants",
+            }
+        )
     return {"version": 1, "nodes": nodes, "edges": edges, "meta": {"canvas": {}}}
 
 
@@ -95,7 +118,12 @@ def _two_price_formation_graph() -> dict[str, Any]:
     graph = _basic_linear_graph()
     graph["nodes"].append({"id": "pf2", "block": "hotelling", "params": {}})
     graph["edges"].append(
-        {"source": "pf2", "sourcePort": "price_formation", "target": "market", "targetPort": "price_formation"}
+        {
+            "source": "pf2",
+            "sourcePort": "price_formation",
+            "target": "market",
+            "targetPort": "price_formation",
+        }
     )
     return graph
 
@@ -110,11 +138,27 @@ def test_api_blocks_parses_and_lists_every_catalogue_block() -> None:
     returned_ids = {block["id"] for block in body["blocks"]}
     assert returned_ids == set(BLOCK_CATALOGUE.ids())
     for block in body["blocks"]:
-        assert set(block.keys()) == {"id", "label", "category", "doc", "params", "ports", "constraints"}
+        assert set(block.keys()) == {
+            "id",
+            "label",
+            "category",
+            "doc",
+            "params",
+            "ports",
+            "constraints",
+        }
         assert set(block["ports"].keys()) == {"inputs", "outputs"}
         for param in block["params"]:
             assert set(param.keys()) == {
-                "name", "type", "default", "unit", "min", "max", "enum", "config_key", "scope",
+                "name",
+                "type",
+                "default",
+                "unit",
+                "min",
+                "max",
+                "enum",
+                "config_key",
+                "scope",
             }
 
 
@@ -159,11 +203,12 @@ def test_graph_validate_ok_true_for_clean_graph() -> None:
 # ── (d) from-template -> graph -> /api/graph/run round-trip ─────────────
 
 
-def test_from_template_round_trips_through_graph_run() -> None:
+def test_from_template_round_trips_through_graph_run(monkeypatch) -> None:
+    monkeypatch.setattr(api, "EXAMPLES_DIR", FIXTURES_DIR)
     status_templates, body_templates = _call("GET", "/api/templates")
     assert status_templates == 200
     template_id = next(
-        t["id"] for t in body_templates["templates"] if t["id"] == "climate_solutions_basic_linear"
+        t["id"] for t in body_templates["templates"] if t["id"] == "minimal_scenario"
     )
 
     status_ft, body_ft = _call("GET", "/api/graph/from-template", query=f"id={template_id}")
@@ -261,10 +306,9 @@ def test_save_model_graph_sidecar_returned_by_from_template(tmp_path, monkeypatc
 # ── (g) GET/POST /api/model-manifest ─────────────────────────────────────
 
 
-def test_model_manifest_get_for_example_template() -> None:
-    status, body = _call(
-        "GET", "/api/model-manifest", query="id=climate_solutions_basic_linear"
-    )
+def test_model_manifest_get_for_example_template(monkeypatch) -> None:
+    monkeypatch.setattr(api, "EXAMPLES_DIR", FIXTURES_DIR)
+    status, body = _call("GET", "/api/model-manifest", query="id=minimal_scenario")
     assert status == 200, body
     assert set(body.keys()) == {"features", "blocks", "approach", "categories", "scenarios"}
     assert "core" in body["features"]
@@ -280,9 +324,7 @@ def test_model_manifest_get_for_saved_user_model(tmp_path, monkeypatch) -> None:
     )
     assert status_save == 200, body_save
 
-    status, body = _call(
-        "GET", "/api/model-manifest", query=f"id={body_save['id']}"
-    )
+    status, body = _call("GET", "/api/model-manifest", query=f"id={body_save['id']}")
     assert status == 200, body
     assert "core" in body["features"]
     assert "competitive" in body["features"]
@@ -301,9 +343,7 @@ def test_model_manifest_get_missing_id_is_400() -> None:
 
 
 def test_model_manifest_post_raw_config() -> None:
-    config = json.loads(
-        (EXAMPLES_DIR / "k_msr_P1_decree_banking.json").read_text()
-    )
+    config = json.loads((FIXTURES_DIR / "minimal_banking_msr_scenario.json").read_text())
     status, body = _post_json("/api/model-manifest", config)
     assert status == 200, body
     assert {"banking", "msr"} <= set(body["features"])

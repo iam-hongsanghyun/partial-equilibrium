@@ -31,11 +31,17 @@ from pe.blocks import Edge, Graph, Node, compile_graph, validate_graph
 from pe.blocks.catalogue import BLOCK_CATALOGUE
 from pe.blocks.compile import per_year_value
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "examples"
+# TEST INFRA (not the example library): each canonical drawing below compiles
+# to a config and is asserted cell-identical to loading the matching recovered
+# fixture. The graph topology is authored directly; only the per-year
+# participant/policy values are pulled from these fixtures to keep the file
+# small. (Each fixture is the deleted example it was recovered from — see the
+# module suites for the mapping.)
+FIXTURES_DIR = next(p for p in Path(__file__).resolve().parents if p.name == "tests") / "fixtures"
 
 
 def _load(stem: str) -> dict[str, Any]:
-    return json.loads((EXAMPLES_DIR / f"{stem}.json").read_text())
+    return json.loads((FIXTURES_DIR / f"{stem}.json").read_text())
 
 
 def _collapse_field(values_by_year: dict[str, Any], default: Any) -> Any:
@@ -66,7 +72,9 @@ def _participant_node(node_id: str, years: list[dict], name: str, order: int) ->
     return Node(node_id, "participant", params)
 
 
-def _bound_node(node_id: str, years: list[dict], block_id: str, config_key: str, default: float) -> Node | None:
+def _bound_node(
+    node_id: str, years: list[dict], block_id: str, config_key: str, default: float
+) -> Node | None:
     """price_floor/price_ceiling node, or None if every year matches the default.
 
     Bit-identical replay (not just numerically-close) requires this: the
@@ -84,7 +92,9 @@ def _bound_node(node_id: str, years: list[dict], block_id: str, config_key: str,
 
 def _attach_bounds(nodes: list[Node], edges: list[Edge], market_id: str, years: list[dict]) -> None:
     floor = _bound_node(f"{market_id}_floor", years, "price_floor", "price_lower_bound", 0.0)
-    ceiling = _bound_node(f"{market_id}_ceiling", years, "price_ceiling", "price_upper_bound", 100.0)
+    ceiling = _bound_node(
+        f"{market_id}_ceiling", years, "price_ceiling", "price_upper_bound", 100.0
+    )
     for node in (floor, ceiling):
         if node is not None:
             nodes.append(node)
@@ -93,8 +103,15 @@ def _attach_bounds(nodes: list[Node], edges: list[Edge], market_id: str, years: 
 
 def _market_years_grid(years: list[dict]) -> list[dict]:
     keys = (
-        "year", "total_cap", "auction_mode", "auction_offered", "reserved_allowances",
-        "carbon_budget", "banking_allowed", "borrowing_allowed", "borrowing_limit",
+        "year",
+        "total_cap",
+        "auction_mode",
+        "auction_offered",
+        "reserved_allowances",
+        "carbon_budget",
+        "banking_allowed",
+        "borrowing_allowed",
+        "borrowing_limit",
     )
     return [{k: y[k] for k in keys if k in y} for y in years]
 
@@ -102,7 +119,7 @@ def _market_years_grid(years: list[dict]) -> list[dict]:
 def _assert_runs_identically(graph: Graph, example_stem: str) -> None:
     compiled = compile_graph(graph)
     summary_a, participants_a = run_simulation_from_config(compiled)
-    summary_b, participants_b = run_simulation_from_file(EXAMPLES_DIR / f"{example_stem}.json")
+    summary_b, participants_b = run_simulation_from_file(FIXTURES_DIR / f"{example_stem}.json")
     pd.testing.assert_frame_equal(summary_a, summary_b, check_exact=True)
     pd.testing.assert_frame_equal(participants_a, participants_b, check_exact=True)
 
@@ -111,12 +128,16 @@ def _assert_runs_identically(graph: Graph, example_stem: str) -> None:
 
 
 def test_basic_linear_competitive_market() -> None:
-    cfg = _load("climate_solutions_basic_linear")
+    cfg = _load("minimal_scenario")
     scenario = cfg["scenarios"][0]
     years = scenario["years"]
 
     nodes = [
-        Node("market", "carbon_market", {"name": scenario["name"], "years": _market_years_grid(years)}),
+        Node(
+            "market",
+            "carbon_market",
+            {"name": scenario["name"], "years": _market_years_grid(years)},
+        ),
         Node("pf", "competitive_clearing", {}),
     ]
     edges = [Edge("pf", "price_formation", "market", "price_formation")]
@@ -129,20 +150,26 @@ def test_basic_linear_competitive_market() -> None:
     graph = Graph(nodes=nodes, edges=edges)
     issues = validate_graph(graph)
     assert not [i for i in issues if i.level == "error"]
-    _assert_runs_identically(graph, "climate_solutions_basic_linear")
+    _assert_runs_identically(graph, "minimal_scenario")
 
 
 def test_msr_on_competitive_market() -> None:
-    cfg = _load("climate_solutions_msr_stability")
+    cfg = _load("minimal_msr_scenario")
     nodes: list[Node] = []
     edges: list[Edge] = []
     for scenario_index, scenario in enumerate(cfg["scenarios"]):
         years = scenario["years"]
         market_id = f"market{scenario_index}"
         nodes.append(
-            Node(market_id, "carbon_market", {
-                "name": scenario["name"], "years": _market_years_grid(years), "order": scenario_index,
-            })
+            Node(
+                market_id,
+                "carbon_market",
+                {
+                    "name": scenario["name"],
+                    "years": _market_years_grid(years),
+                    "order": scenario_index,
+                },
+            )
         )
         pf_id = f"{market_id}_pf"
         nodes.append(Node(pf_id, "competitive_clearing", {}))
@@ -155,49 +182,65 @@ def test_msr_on_competitive_market() -> None:
         if scenario.get("msr_enabled"):
             msr_id = f"{market_id}_msr"
             nodes.append(
-                Node(msr_id, "msr_bank_threshold", {
-                    "msr_upper_threshold": scenario["msr_upper_threshold"],
-                    "msr_lower_threshold": scenario["msr_lower_threshold"],
-                    "msr_withhold_rate": scenario["msr_withhold_rate"],
-                    "msr_release_rate": scenario["msr_release_rate"],
-                    "msr_cancel_excess": scenario["msr_cancel_excess"],
-                    "msr_cancel_threshold": scenario["msr_cancel_threshold"],
-                })
+                Node(
+                    msr_id,
+                    "msr_bank_threshold",
+                    {
+                        "msr_upper_threshold": scenario["msr_upper_threshold"],
+                        "msr_lower_threshold": scenario["msr_lower_threshold"],
+                        "msr_withhold_rate": scenario["msr_withhold_rate"],
+                        "msr_release_rate": scenario["msr_release_rate"],
+                        "msr_cancel_excess": scenario["msr_cancel_excess"],
+                        "msr_cancel_threshold": scenario["msr_cancel_threshold"],
+                    },
+                )
             )
             edges.append(Edge(msr_id, "policy", market_id, "policies"))
 
     graph = Graph(nodes=nodes, edges=edges)
     issues = validate_graph(graph)
     assert not [i for i in issues if i.level == "error"]
-    _assert_runs_identically(graph, "climate_solutions_msr_stability")
+    _assert_runs_identically(graph, "minimal_msr_scenario")
 
 
 @pytest.mark.slow
 def test_kmsr_decree_on_banking() -> None:
-    """~150s: 15-year discrete-MAC banking window solve (matches the
-    k_msr_P1_decree_banking golden baseline, itself marked slow at ~220s)."""
-    cfg = _load("k_msr_P1_decree_banking")
+    """~150s: 15-year discrete-MAC banking window solve on the recovered
+    k_msr_P1_decree_banking fixture (minimal_banking_msr_scenario)."""
+    cfg = _load("minimal_banking_msr_scenario")
     scenario = cfg["scenarios"][0]
     years = scenario["years"]
 
     nodes = [
-        Node("market", "carbon_market", {"name": scenario["name"], "years": _market_years_grid(years)}),
-        Node("pf", "rubin_schennach_banking", {
-            "discount_rate": scenario["discount_rate"],
-            "solver_penalty_price_multiplier": scenario["solver_penalty_price_multiplier"],
-            "banking_initial_bank": scenario["banking_initial_bank"],
-            "banking_strict_no_arbitrage": scenario["banking_strict_no_arbitrage"],
-        }),
-        Node("msr", "kmsr_decree", {
-            "msr_mode": scenario["msr_mode"],
-            "msr_price_band_high": scenario["msr_price_band_high"],
-            "msr_price_band_low": scenario["msr_price_band_low"],
-            "msr_surplus_upper_ratio": scenario["msr_surplus_upper_ratio"],
-            "msr_surplus_lower_ratio": scenario["msr_surplus_lower_ratio"],
-            "msr_max_intake_mt": scenario["msr_max_intake_mt"],
-            "msr_max_release_mt": scenario["msr_max_release_mt"],
-            "msr_initial_reserve_mt": scenario["msr_initial_reserve_mt"],
-        }),
+        Node(
+            "market",
+            "carbon_market",
+            {"name": scenario["name"], "years": _market_years_grid(years)},
+        ),
+        Node(
+            "pf",
+            "rubin_schennach_banking",
+            {
+                "discount_rate": scenario["discount_rate"],
+                "solver_penalty_price_multiplier": scenario["solver_penalty_price_multiplier"],
+                "banking_initial_bank": scenario["banking_initial_bank"],
+                "banking_strict_no_arbitrage": scenario["banking_strict_no_arbitrage"],
+            },
+        ),
+        Node(
+            "msr",
+            "kmsr_decree",
+            {
+                "msr_mode": scenario["msr_mode"],
+                "msr_price_band_high": scenario["msr_price_band_high"],
+                "msr_price_band_low": scenario["msr_price_band_low"],
+                "msr_surplus_upper_ratio": scenario["msr_surplus_upper_ratio"],
+                "msr_surplus_lower_ratio": scenario["msr_surplus_lower_ratio"],
+                "msr_max_intake_mt": scenario["msr_max_intake_mt"],
+                "msr_max_release_mt": scenario["msr_max_release_mt"],
+                "msr_initial_reserve_mt": scenario["msr_initial_reserve_mt"],
+            },
+        ),
     ]
     edges = [
         Edge("pf", "price_formation", "market", "price_formation"),
@@ -212,20 +255,26 @@ def test_kmsr_decree_on_banking() -> None:
     graph = Graph(nodes=nodes, edges=edges)
     issues = validate_graph(graph)
     assert not [i for i in issues if i.level == "error"]
-    _assert_runs_identically(graph, "k_msr_P1_decree_banking")
+    _assert_runs_identically(graph, "minimal_banking_msr_scenario")
 
 
 def test_ccr_carbon_cap_rule() -> None:
-    cfg = _load("benmir_ccr_carbon_cap_rule")
+    cfg = _load("minimal_ccr_scenario")
     nodes: list[Node] = []
     edges: list[Edge] = []
     for scenario_index, scenario in enumerate(cfg["scenarios"]):
         years = scenario["years"]
         market_id = f"market{scenario_index}"
         nodes.append(
-            Node(market_id, "carbon_market", {
-                "name": scenario["name"], "years": _market_years_grid(years), "order": scenario_index,
-            })
+            Node(
+                market_id,
+                "carbon_market",
+                {
+                    "name": scenario["name"],
+                    "years": _market_years_grid(years),
+                    "order": scenario_index,
+                },
+            )
         )
         pf_id = f"{market_id}_pf"
         nodes.append(Node(pf_id, "competitive_clearing", {}))
@@ -238,19 +287,23 @@ def test_ccr_carbon_cap_rule() -> None:
         if scenario.get("ccr_enabled"):
             ccr_id = f"{market_id}_ccr"
             nodes.append(
-                Node(ccr_id, "ccr", {
-                    "ccr_phi_emissions": scenario["ccr_phi_emissions"],
-                    "ccr_phi_abatement_cost": scenario["ccr_phi_abatement_cost"],
-                    "ccr_reference_emissions": scenario["ccr_reference_emissions"],
-                    "ccr_reference_abatement_cost": scenario["ccr_reference_abatement_cost"],
-                })
+                Node(
+                    ccr_id,
+                    "ccr",
+                    {
+                        "ccr_phi_emissions": scenario["ccr_phi_emissions"],
+                        "ccr_phi_abatement_cost": scenario["ccr_phi_abatement_cost"],
+                        "ccr_reference_emissions": scenario["ccr_reference_emissions"],
+                        "ccr_reference_abatement_cost": scenario["ccr_reference_abatement_cost"],
+                    },
+                )
             )
             edges.append(Edge(ccr_id, "policy", market_id, "policies"))
 
     graph = Graph(nodes=nodes, edges=edges)
     issues = validate_graph(graph)
     assert not [i for i in issues if i.level == "error"]
-    _assert_runs_identically(graph, "benmir_ccr_carbon_cap_rule")
+    _assert_runs_identically(graph, "minimal_ccr_scenario")
 
 
 # ── (b) validation rejections ────────────────────────────────────────────
@@ -259,14 +312,32 @@ def test_ccr_carbon_cap_rule() -> None:
 def _minimal_graph(**overrides: Any) -> Graph:
     """One market, one participant, one competitive price-formation block."""
     nodes = [
-        Node("market", "carbon_market", {
-            "years": [{"year": "2026", "total_cap": 100.0, "auction_mode": "explicit", "auction_offered": 50.0}]
-        }),
+        Node(
+            "market",
+            "carbon_market",
+            {
+                "years": [
+                    {
+                        "year": "2026",
+                        "total_cap": 100.0,
+                        "auction_mode": "explicit",
+                        "auction_offered": 50.0,
+                    }
+                ]
+            },
+        ),
         Node("pf", "competitive_clearing", {}),
-        Node("p0", "participant", {
-            "name": "Steel", "initial_emissions": 100.0, "penalty_price": 50.0,
-            "max_abatement": 20.0, "cost_slope": 2.0,
-        }),
+        Node(
+            "p0",
+            "participant",
+            {
+                "name": "Steel",
+                "initial_emissions": 100.0,
+                "penalty_price": 50.0,
+                "max_abatement": 20.0,
+                "cost_slope": 2.0,
+            },
+        ),
     ]
     edges = [
         Edge("pf", "price_formation", "market", "price_formation"),
@@ -347,7 +418,13 @@ def test_r14_hotelling_requires_budget_or_cap() -> None:
     graph = _minimal_graph()
     graph.nodes[1] = Node("pf", "hotelling", {})
     graph.nodes[0].params["years"] = [
-        {"year": "2026", "total_cap": 0.0, "auction_mode": "explicit", "auction_offered": 0.0, "carbon_budget": 0.0}
+        {
+            "year": "2026",
+            "total_cap": 0.0,
+            "auction_mode": "explicit",
+            "auction_offered": 0.0,
+            "carbon_budget": 0.0,
+        }
     ]
     assert "R14" in _issue_rules(validate_graph(graph))
 
@@ -357,8 +434,12 @@ def test_r18_banking_forbids_borrowing() -> None:
     graph.nodes[1] = Node("pf", "rubin_schennach_banking", {})
     graph.nodes[0].params["years"] = [
         {
-            "year": "2026", "total_cap": 100.0, "auction_mode": "explicit", "auction_offered": 50.0,
-            "banking_allowed": True, "borrowing_allowed": True,
+            "year": "2026",
+            "total_cap": 100.0,
+            "auction_mode": "explicit",
+            "auction_offered": 50.0,
+            "banking_allowed": True,
+            "borrowing_allowed": True,
         }
     ]
     assert "R18" in _issue_rules(validate_graph(graph))
@@ -366,7 +447,9 @@ def test_r18_banking_forbids_borrowing() -> None:
 
 def test_r23_banking_negative_discount_plus_premium() -> None:
     graph = _minimal_graph()
-    graph.nodes[1] = Node("pf", "rubin_schennach_banking", {"discount_rate": -0.5, "risk_premium": -0.5})
+    graph.nodes[1] = Node(
+        "pf", "rubin_schennach_banking", {"discount_rate": -0.5, "risk_premium": -0.5}
+    )
     assert "R23" in _issue_rules(validate_graph(graph))
 
 
@@ -395,7 +478,9 @@ def test_r26_cap_consistency_violation() -> None:
 
 def test_r30_announced_year_outside_horizon() -> None:
     graph = _minimal_graph()
-    graph.nodes.append(Node("cancel", "cancellation", {"cancelled_allowances": 5.0, "announced": "1999"}))
+    graph.nodes.append(
+        Node("cancel", "cancellation", {"cancelled_allowances": 5.0, "announced": "1999"})
+    )
     graph.edges.append(Edge("cancel", "policy", "market", "policies"))
     assert "R30" in _issue_rules(validate_graph(graph))
 

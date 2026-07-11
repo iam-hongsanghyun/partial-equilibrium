@@ -15,7 +15,14 @@ from pe.core.defaults import CCR_DEFAULTS
 from pe.features.ccr import CCRState
 from pe.engine import run_simulation_from_file
 
-EXAMPLE = Path(__file__).resolve().parents[3] / "examples" / "benmir_ccr_carbon_cap_rule.json"
+# TEST INFRA (not the example library): benmir_ccr_carbon_cap_rule recovered
+# under tests/fixtures/ as the CCR machinery fixture. Its two scenarios
+# ("Fixed Cap", "Carbon Cap Rule (CCR)") drive the integration assertions below.
+EXAMPLE = (
+    next(p for p in Path(__file__).resolve().parents if p.name == "tests")
+    / "fixtures"
+    / "minimal_ccr_scenario.json"
+)
 
 
 # ── Unit: the rule arithmetic ────────────────────────────────────────────────
@@ -47,7 +54,7 @@ def test_adjustment_matches_closed_form():
         reference_abatement_cost=zbar,
     )
 
-    expected_dev_e = (440.0 - 400.0) / 400.0   # +0.10
+    expected_dev_e = (440.0 - 400.0) / 400.0  # +0.10
     expected_dev_z = (2400.0 - 2000.0) / 2000.0  # +0.20
     expected_adj = phi_e * expected_dev_e + phi_z * expected_dev_z  # -12 + 6 = -6
     np.testing.assert_allclose(dev_e, expected_dev_e, rtol=0, atol=1e-12)

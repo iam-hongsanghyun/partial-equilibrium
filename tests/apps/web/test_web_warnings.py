@@ -14,14 +14,18 @@ from pathlib import Path
 
 import pe.web.api as api
 
-EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
+# TEST INFRA (not the example library): the recovered minimal competitive
+# scenario under tests/fixtures/, used here as a generic clean run.
+MINIMAL_SCENARIO = (
+    next(p for p in Path(__file__).resolve().parents if p.name == "tests")
+    / "fixtures"
+    / "minimal_scenario.json"
+)
 
 
 def test_ets_logger_warning_reaches_payload(monkeypatch) -> None:
     """A WARNING emitted by an ``pe.*`` logger mid-run lands in payload["warnings"]."""
-    config = json.loads(
-        (EXAMPLES / "climate_solutions_basic_linear.json").read_text(encoding="utf-8")
-    )
+    config = json.loads(MINIMAL_SCENARIO.read_text(encoding="utf-8"))
 
     real_run_simulation = api.run_simulation
 
@@ -37,9 +41,7 @@ def test_ets_logger_warning_reaches_payload(monkeypatch) -> None:
 
 def test_no_spurious_warnings_on_clean_run() -> None:
     """A clean scenario produces an empty warnings list (handler is scoped to the run)."""
-    config = json.loads(
-        (EXAMPLES / "climate_solutions_basic_linear.json").read_text(encoding="utf-8")
-    )
+    config = json.loads(MINIMAL_SCENARIO.read_text(encoding="utf-8"))
 
     payload = api._build_dashboard_payload(config)
 
