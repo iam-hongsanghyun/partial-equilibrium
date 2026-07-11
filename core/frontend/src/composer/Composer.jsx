@@ -32,15 +32,16 @@ import {
 } from "./graphUtils.js";
 import { AnalysisView } from "../components/AppViews.jsx";
 import { buildDraftResult } from "../components/AppShared.jsx";
+import {
+  flattenRunScenarios,
+  jointRowsFromSummary,
+  jointProblemsFromRows,
+  jointRowForScenario,
+  JointNonConvergenceBanner,
+  JointConvergenceCard,
+} from "../components/MultiMarket.jsx";
 
 const NODE_TYPES = { blockNode: BlockNode };
-
-// The one summary-column whose PRESENCE marks a cyclic-SCC (joint-equilibrium)
-// row — the backend stamps the four "Joint *" columns only on those rows
-// (dispatch present-guard, mirrored in ets.mcp.compact). Every joint-UI branch
-// below gates on this exact key being present, so an acyclic / single-market
-// run renders nothing joint-related.
-const JOINT_CONVERGED_COLUMN = "Joint Converged";
 
 function downloadJson(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -50,43 +51,6 @@ function downloadJson(data, filename) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-// A linked (multi-market / joint-equilibrium) scenario compiles to ONE config
-// scenario carrying a `markets` array, and the backend keys its results by the
-// composite `"<scenario> :: <market>"`. Flatten each such scenario into one
-// pseudo-scenario per market whose `name` is that composite, so the existing
-// per-scenario display (pills, AnalysisView, trajectory) renders each market
-// unchanged. Config-driven: a scenario WITHOUT a `markets` array — every
-// single-market / acyclic-today run — passes through byte-for-byte untouched.
-function flattenRunScenarios(scenarios) {
-  const flattened = [];
-  for (const scenario of scenarios || []) {
-    const markets = Array.isArray(scenario.markets) ? scenario.markets : null;
-    if (markets && markets.length) {
-      for (const market of markets) {
-        const marketId = String(market.market_id ?? "");
-        // Drop the linked-only keys; keep color/description/id-derived meta.
-        const { markets: _markets, links: _links, joint_solver: _joint, ...meta } = scenario;
-        flattened.push({
-          ...meta,
-          id: `${scenario.id}::${marketId}`,
-          name: `${scenario.name} :: ${marketId}`,
-          marketId,
-          years: Array.isArray(market.years) ? market.years : [],
-        });
-      }
-    } else {
-      flattened.push(scenario);
-    }
-  }
-  return flattened;
-}
-
-// The market id half of a composite `"<scenario> :: <market>"` result key.
-function marketLabelFromComposite(name) {
-  const text = String(name ?? "");
-  return text.includes(" :: ") ? text.split(" :: ").slice(1).join(" :: ") : text;
 }
 
 function ComposerCanvas() {
@@ -388,25 +352,9 @@ function ComposerCanvas() {
   // Joint-equilibrium diagnostics come straight from the summary rows the
   // backend stamps ONLY on cyclic-SCC markets (present-guard): an acyclic /
   // single-market run has no such row, so every branch below is inert for it.
-  const jointRows = useMemo(
-    () => (runPayload?.summary || []).filter((row) => JOINT_CONVERGED_COLUMN in row),
-    [runPayload]
-  );
-  // One problem entry per market (dedupe the identical per-year joint rows):
-  // did-not-converge, or a detected oscillation period.
-  const jointProblems = useMemo(() => {
-    const byMarket = new Map();
-    for (const row of jointRows) {
-      const converged = Number(row[JOINT_CONVERGED_COLUMN]) === 1;
-      const cycle = Number(row["Joint Cycle Detected"]) || 0;
-      if ((converged && cycle === 0) || byMarket.has(row.Scenario)) continue;
-      byMarket.set(row.Scenario, row);
-    }
-    return [...byMarket.values()];
-  }, [jointRows]);
-  const activeJointRow =
-    activeRunScenario &&
-    (jointRows.find((row) => row.Scenario === activeRunScenario.name) || null);
+  const jointRows = useMemo(() => jointRowsFromSummary(runPayload?.summary), [runPayload]);
+  const jointProblems = useMemo(() => jointProblemsFromRows(jointRows), [jointRows]);
+  const activeJointRow = jointRowForScenario(jointRows, activeRunScenario?.name);
 
   return (
     <div className="composer-view">
@@ -468,25 +416,7 @@ function ComposerCanvas() {
           <button className="server-warnings-close" onClick={() => setNotice(null)} title="Dismiss">Dismiss</button>
         </div>
       )}
-      {jointProblems.length > 0 && (
-        <div className="server-warnings-banner">
-          <div className="server-warnings-list">
-            {jointProblems.map((row) => {
-              const market = marketLabelFromComposite(row.Scenario);
-              const converged = Number(row[JOINT_CONVERGED_COLUMN]) === 1;
-              const iterations = Number(row["Joint Outer Iterations"]) || 0;
-              const cycle = Number(row["Joint Cycle Detected"]) || 0;
-              const parts = converged
-                ? [`Joint equilibrium for ${market} is oscillating after ${iterations} outer iterations — reduce the joint-solver relaxation (more damping) or raise max iterations.`]
-                : [`Joint equilibrium did not converge for ${market} after ${iterations} outer iterations — reduce the joint-solver relaxation (more damping) or raise max iterations.`];
-              if (cycle > 0) parts.push(`Cycle detected: period ${cycle}.`);
-              return (
-                <div key={row.Scenario} className="server-warning-item">{parts.join(" ")}</div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <JointNonConvergenceBanner problems={jointProblems} />
 
       <div className="composer-layout">
         <Palette blocks={catalogue} />
@@ -570,42 +500,7 @@ function ComposerCanvas() {
               </button>
             ))}
           </nav>
-          {activeJointRow && (
-            <div className="builder-card">
-              <div className="builder-card-head">
-                <div>
-                  <div className="eyebrow">Joint equilibrium</div>
-                  <h4>
-                    {Number(activeJointRow[JOINT_CONVERGED_COLUMN]) === 1
-                      ? `Converged in ${Number(activeJointRow["Joint Outer Iterations"]) || 0} iterations`
-                      : "Did not converge"}
-                  </h4>
-                </div>
-              </div>
-              <div className="review-grid">
-                <div className="review-item">
-                  <span className="review-label">Converged</span>
-                  <strong>{Number(activeJointRow[JOINT_CONVERGED_COLUMN]) === 1 ? "Yes" : "No"}</strong>
-                </div>
-                <div className="review-item">
-                  <span className="review-label">Outer iterations</span>
-                  <strong>{Number(activeJointRow["Joint Outer Iterations"]) || 0}</strong>
-                </div>
-                <div className="review-item">
-                  <span className="review-label">Max normalized change</span>
-                  <strong>{Number(activeJointRow["Joint Max Normalized Change"] || 0).toExponential(2)}</strong>
-                </div>
-                <div className="review-item">
-                  <span className="review-label">Cycle detected</span>
-                  <strong>
-                    {Number(activeJointRow["Joint Cycle Detected"]) > 0
-                      ? `period ${Number(activeJointRow["Joint Cycle Detected"])}`
-                      : "none"}
-                  </strong>
-                </div>
-              </div>
-            </div>
-          )}
+          <JointConvergenceCard row={activeJointRow} />
           <AnalysisView
             scenario={activeRunScenario}
             yearObj={activeRunYearObj}
