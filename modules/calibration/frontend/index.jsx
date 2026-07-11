@@ -4,7 +4,7 @@
 // (the fields fall back to their in-editor defaults via `??`), so
 // scenarioDefaults is intentionally omitted here.
 
-import { CollapsibleGroup, numInput } from "../../components/EditorPrimitives.jsx";
+import { CollapsibleGroup, numInput } from "@core/components/EditorPrimitives.jsx";
 
 // Numerical-internals fields behind this whole group (see
 // solverSectionVisible in Editor.jsx / AppShared.jsx's

@@ -1,8 +1,8 @@
 // MSR (Market Stability Reserve) feature — extracted verbatim from
 // frontend/src/components/Editor.jsx (MSR panel, market step).
 
-import { CollapsibleGroup, numInput } from "../../components/EditorPrimitives.jsx";
-import { SummaryPathwayPanel, orderedSummaryRows } from "../../components/ResultPrimitives.jsx";
+import { CollapsibleGroup, numInput } from "@core/components/EditorPrimitives.jsx";
+import { SummaryPathwayPanel, orderedSummaryRows } from "@core/components/ResultPrimitives.jsx";
 
 function MsrEditorSection({ ctx }) {
   const { workingScenario, updateScenario } = ctx;

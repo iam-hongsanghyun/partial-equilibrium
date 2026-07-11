@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { collectSlot } from "../features/registry.js";
+import { collectSlot } from "../registry.js";
 
 // Core steps — always shown, in every shell (default and pe-scoped alike).
 // "core guide intro stays" per the pe-shell scoping design; only the
-// per-module pages below (features/*/index.jsx guideSections) are scoped to
+// per-module pages below (modules/*/frontend/index.jsx guideSections) are scoped to
 // the active model's manifest.
 const CORE_STEPS = [
   {

@@ -2,8 +2,8 @@
 // frontend/src/components/Editor.jsx (CCR panel, market step).
 // Adaptive, Taylor-rule-style cap (Benmir, Roman & Taschini 2025).
 
-import { CollapsibleGroup, numInput } from "../../components/EditorPrimitives.jsx";
-import { SummaryPathwayPanel, orderedSummaryRows } from "../../components/ResultPrimitives.jsx";
+import { CollapsibleGroup, numInput } from "@core/components/EditorPrimitives.jsx";
+import { SummaryPathwayPanel, orderedSummaryRows } from "@core/components/ResultPrimitives.jsx";
 
 function CcrEditorSection({ ctx }) {
   const { workingScenario, updateScenario } = ctx;

@@ -23,7 +23,7 @@ import {
   visibleYearAttributeFields,
   TooltipButton,
 } from "./AppShared.jsx";
-import { activeFeatureIds, collectSlot, FEATURES } from "../features/registry.js";
+import { activeFeatureIds, collectSlot, FEATURES } from "../registry.js";
 
 // The full year-attribute candidate list for the "Market timeline" metric
 // picker. Unscoped (default) shell: shown in full, unchanged, in this exact

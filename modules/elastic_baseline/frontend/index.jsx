@@ -4,7 +4,7 @@
 // Hotelling approach-params block (its pre-existing, if slightly unusual,
 // visibility gate — preserved rather than "fixed", per the WO-F1 pixel/DOM
 // equivalence bar). The hotelling feature imports ReferenceCarbonPriceField
-// directly to embed it at that exact position; see features/hotelling.
+// directly to embed it at that exact position; see modules/hotelling/frontend.
 
 export function ReferenceCarbonPriceField({ ctx }) {
   const { workingScenario, updateScenario } = ctx;

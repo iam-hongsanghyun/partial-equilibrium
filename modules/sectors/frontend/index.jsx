@@ -3,8 +3,8 @@
 // Extracted from frontend/src/components/Editor.jsx (Sectors panel,
 // participant "Sector group" field) verbatim; behaviour unchanged.
 
-import { CollapsibleGroup } from "../../components/EditorPrimitives.jsx";
-import { makeBlankSector } from "../../components/AppShared.jsx";
+import { CollapsibleGroup } from "@core/components/EditorPrimitives.jsx";
+import { makeBlankSector } from "@core/components/AppShared.jsx";
 
 function SectorsEditorSection({ ctx }) {
   const { workingScenario, updateScenario } = ctx;

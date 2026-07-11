@@ -8,8 +8,8 @@
 // (participantEditorSections, rendered at the technology editor — a
 // non-empty investment_trigger sub-dict IS the flag, backend spec D6).
 
-import { CollapsibleGroup, numInput } from "../../components/EditorPrimitives.jsx";
-import { orderedSummaryRows } from "../../components/ResultPrimitives.jsx";
+import { CollapsibleGroup, numInput } from "@core/components/EditorPrimitives.jsx";
+import { orderedSummaryRows } from "@core/components/ResultPrimitives.jsx";
 
 // ── Scenario-level: master gate, safety-rail iterations, credibility
 // override, and a read-only view of any pre-committed (splice-carried)

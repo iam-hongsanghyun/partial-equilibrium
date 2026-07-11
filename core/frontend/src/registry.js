@@ -13,7 +13,7 @@
 //     approachOptions: [Component],      // model_approach-gated solver params
 //     validators: [fn],                  // scenario -> issue[] (see AppShared.validateScenario)
 //     guideSections: [{ id, tag, title, content: Component }],  // GuideView's
-//       "Active modules" list (frontend/src/components/GuideView.jsx) — only
+//       "Active modules" list (core/frontend/src/components/GuideView.jsx) — only
 //       shown for a feature that is actually active, so a manifest-scoped pe
 //       model only sees guide pages for the modules it uses. `content` takes
 //       no props (it is a plain, non-`ctx` component, unlike every other slot
@@ -25,21 +25,21 @@
 // / approachOptions slots). WO-F2 wired the result side (summaryPanels /
 // analysisBullets / resultStats). WO-F3 wires the pe shell itself: the
 // approach lock and "Banking, borrowing & expectations" visibility
-// (frontend/src/components/Editor.jsx) and guideSections (this file / GuideView.jsx).
+// (core/frontend/src/components/Editor.jsx) and guideSections (this file / GuideView.jsx).
 
-import msr from "./msr/index.jsx";
-import ccr from "./ccr/index.jsx";
-import cbam from "./cbam/index.jsx";
-import sectors from "./sectors/index.jsx";
-import oba from "./oba/index.jsx";
-import price_controls from "./price_controls/index.jsx";
-import banking from "./banking/index.jsx";
-import hotelling from "./hotelling/index.jsx";
-import nash_cournot from "./nash_cournot/index.jsx";
-import transmission from "./transmission/index.jsx";
-import elastic_baseline from "./elastic_baseline/index.jsx";
-import calibration from "./calibration/index.jsx";
-import endogenous_investment from "./endogenous_investment/index.jsx";
+import msr from "@features/msr/frontend/index.jsx";
+import ccr from "@features/ccr/frontend/index.jsx";
+import cbam from "@features/cbam/frontend/index.jsx";
+import sectors from "@features/sectors/frontend/index.jsx";
+import oba from "@features/oba/frontend/index.jsx";
+import price_controls from "@features/price_controls/frontend/index.jsx";
+import banking from "@features/banking/frontend/index.jsx";
+import hotelling from "@features/hotelling/frontend/index.jsx";
+import nash_cournot from "@features/nash_cournot/frontend/index.jsx";
+import transmission from "@features/transmission/frontend/index.jsx";
+import elastic_baseline from "@features/elastic_baseline/frontend/index.jsx";
+import calibration from "@features/calibration/frontend/index.jsx";
+import endogenous_investment from "@features/endogenous_investment/frontend/index.jsx";
 
 export const FEATURES = Object.freeze({
   msr,

@@ -3,8 +3,8 @@
 // exposure and Scope 2 / indirect-emissions panels. Extracted verbatim from
 // frontend/src/components/Editor.jsx.
 
-import { CollapsibleGroup, numInput } from "../../components/EditorPrimitives.jsx";
-import { fmt } from "../../components/MarketChart.jsx";
+import { CollapsibleGroup, numInput } from "@core/components/EditorPrimitives.jsx";
+import { fmt } from "@core/components/MarketChart.jsx";
 
 function CbamEuaPricesSection({ ctx }) {
   const { workingYear, updateYear } = ctx;

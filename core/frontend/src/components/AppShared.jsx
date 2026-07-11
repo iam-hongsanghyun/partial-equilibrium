@@ -1,9 +1,9 @@
 import { useState as useS, useEffect as useE, useMemo as useM, useRef as useR } from "react";
 import { fmt } from "./MarketChart.jsx";
-import { activeFeatureIds, collectSlot, FEATURES } from "../features/registry.js";
+import { activeFeatureIds, collectSlot, FEATURES } from "../registry.js";
 
 // `feature` tags the metric-list / per-year attribute vocabulary with the
-// feature module that owns it (see frontend/src/features/registry.js and
+// feature module that owns it (see core/frontend/src/registry.js and
 // ets/blocks/manifest.py, whose `derive_manifest` is the backend twin of
 // this table — every field below is tagged with exactly the feature its
 // backing block declares in ets/blocks/catalogue.py). `feature: null` means
@@ -45,7 +45,7 @@ function getSeriesFieldMeta(field) {
 // Core participant skeleton. Feature-owned defaults (cbam_*, Scope 2,
 // sector_group, sector_allocation_share, OBA/output-price-elasticity
 // fields) are composed in via the feature registry below, in
-// registry-literal order — see frontend/src/features/registry.js.
+// registry-literal order — see core/frontend/src/registry.js.
 function coreBlankParticipant(index = 1) {
   return {
     name: `Participant ${index}`,
@@ -190,7 +190,7 @@ function visibleYearAttributeFields(fields, { enabledFeatures, years, showAdvanc
 // price_floor_trajectory/price_ceiling_trajectory, hotelling/nash_cournot
 // approach + solver settings, reference_carbon_price) are composed in via
 // the feature registry below, in registry-literal order — see
-// frontend/src/features/registry.js. makeBlankYear stays entirely core
+// core/frontend/src/registry.js. makeBlankYear stays entirely core
 // (year-level defaults are out of scope for this composition — WO-F1 only
 // decomposes makeBlankScenario/makeBlankParticipant).
 function coreBlankScenario(index = 1) {
@@ -474,7 +474,7 @@ function validateScenario(scenario, enabledFeatures = null) {
     });
   });
   // Feature-specific rules (composed in registry order; none defined for
-  // msr/ccr today — see frontend/src/features/registry.js).
+  // msr/ccr today — see core/frontend/src/registry.js).
   collectSlot(enabledFeatures, "validators").forEach((validate) => {
     issues.push(...(validate(scenario) || []));
   });

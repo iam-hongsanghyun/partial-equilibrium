@@ -1,6 +1,6 @@
 // Participant drilldown — a table + a horizontal diverging bar showing who buys vs who sells.
 import { fmt } from "./MarketChart.jsx";
-import { collectSlot } from "../features/registry.js";
+import { collectSlot } from "../registry.js";
 
 export function ParticipantPanel({ year, result, onEdit, onSelectParticipant, selectedIdx, sectorColors, enabledFeatures = null }) {
   const rows = result.perParticipant;

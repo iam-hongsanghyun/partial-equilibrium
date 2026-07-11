@@ -15,9 +15,9 @@
 // gated) as its first field, so the default (unscoped) shell's field order
 // is unchanged (price_controls is always active there).
 
-import { TrajectoryRangeRow, numInput, fieldWithPathButton } from "../../components/EditorPrimitives.jsx";
-import { fmt } from "../../components/MarketChart.jsx";
-import { describeUnsoldTreatment } from "../../components/AppShared.jsx";
+import { TrajectoryRangeRow, numInput, fieldWithPathButton } from "@core/components/EditorPrimitives.jsx";
+import { fmt } from "@core/components/MarketChart.jsx";
+import { describeUnsoldTreatment } from "@core/components/AppShared.jsx";
 
 const PRICE_BOUND_TRAJECTORY_ROWS = [
   { key: "price_floor_trajectory", label: "Price floor trajectory", hint: "Rising price floor. Overrides per-year price_lower_bound.", unit: "$/t" },

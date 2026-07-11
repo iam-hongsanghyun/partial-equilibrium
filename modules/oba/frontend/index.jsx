@@ -5,7 +5,7 @@
 // defined, the sectors feature) can override. Extracted verbatim from
 // frontend/src/components/Editor.jsx (Allocation panel, participants step).
 
-import { numInput, fieldWithPathButton } from "../../components/EditorPrimitives.jsx";
+import { numInput, fieldWithPathButton } from "@core/components/EditorPrimitives.jsx";
 
 function ObaAllocationFields({ ctx }) {
   const { workingScenario, workingYear, participant, selectedParticipantIndex, updateParticipant, openParticipantSeriesEditor } = ctx;

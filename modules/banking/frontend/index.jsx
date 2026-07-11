@@ -13,7 +13,7 @@
 // (simulation.py: `if "banking_aggregate_bank" in item`) — so the self-hide
 // check here is column presence, not a zero check.
 
-import { SummaryPathwayPanel, orderedSummaryRows } from "../../components/ResultPrimitives.jsx";
+import { SummaryPathwayPanel, orderedSummaryRows } from "@core/components/ResultPrimitives.jsx";
 
 const BANK_METRICS = [
   { key: "Banking Aggregate Bank", label: "Aggregate Bank (Mt)" },

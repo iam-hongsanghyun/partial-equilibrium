@@ -5,8 +5,8 @@
 // (between risk premium and carbon budget) — a pre-existing cross-cutting
 // UI placement, not a new coupling introduced by this extraction.
 
-import { numInput } from "../../components/EditorPrimitives.jsx";
-import { ReferenceCarbonPriceField } from "../elastic_baseline/index.jsx";
+import { numInput } from "@core/components/EditorPrimitives.jsx";
+import { ReferenceCarbonPriceField } from "@features/elastic_baseline/frontend/index.jsx";
 
 // Numerical-internals fields behind this module's own "Solver tuning" block
 // (see solverSectionVisible in Editor.jsx / AppShared.jsx's

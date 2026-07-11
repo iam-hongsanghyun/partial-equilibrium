@@ -2,7 +2,7 @@
 // tuning. Extracted verbatim from frontend/src/components/Editor.jsx
 // (Nash extra fields, inside "Modelling approach").
 
-import { numInput } from "../../components/EditorPrimitives.jsx";
+import { numInput } from "@core/components/EditorPrimitives.jsx";
 
 // Numerical-internals fields behind this module's own "Solver tuning" block
 // (see solverSectionVisible in Editor.jsx / AppShared.jsx's

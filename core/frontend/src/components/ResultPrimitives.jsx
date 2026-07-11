@@ -1,5 +1,5 @@
 // Shared result-side primitives — reused by feature modules
-// (frontend/src/features/*) that contribute summaryPanels to AnalysisView.
+// (modules/*/frontend) that contribute summaryPanels to AnalysisView.
 // One generic "metric rows x year columns" table, driven by a metrics
 // config array, rather than a bespoke table per feature (msr/ccr/banking
 // all read the same shape of data: payload.summary rows keyed by

@@ -1,5 +1,5 @@
 // Shared editor primitives — reused by the core Editor (Editor.jsx) and by
-// feature modules (frontend/src/features/*) that contribute editorSections,
+// feature modules (modules/*/frontend) that contribute editorSections,
 // participantEditorSections, or approachOptions. Kept in a neutral module
 // (rather than inside Editor.jsx) so features can import them without a
 // circular dependency on Editor.jsx, which itself imports the feature

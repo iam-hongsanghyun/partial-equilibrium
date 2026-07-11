@@ -7,7 +7,7 @@ import {
   isScenarioFieldConfigured,
   isScenarioSectionConfigured,
 } from "./AppShared.jsx";
-import { activeFeatureIds, collectSlot, FEATURES } from "../features/registry.js";
+import { activeFeatureIds, collectSlot, FEATURES } from "../registry.js";
 import {
   CollapsibleGroup,
   numInput,
@@ -17,7 +17,7 @@ import {
 
 // Re-exported for backward compatibility with any existing imports of these
 // primitives from Editor.jsx; the implementations live in EditorPrimitives.jsx
-// so feature modules (frontend/src/features/*) can import them without a
+// so feature modules (modules/*/frontend) can import them without a
 // circular dependency on Editor.jsx (which imports the feature registry).
 export { CollapsibleGroup, numInput, fieldWithPathButton, TrajectoryRangeRow };
 
@@ -128,7 +128,7 @@ export function Editor({
     : null;
   const visibleApproachOptions = approachOptionsFor(approachScope);
   // "Banking, borrowing & expectations" is core UI (no banking-specific
-  // editor section exists — see features/banking/index.jsx), so it is not
+  // editor section exists — see modules/banking/frontend/index.jsx), so it is not
   // gated through the feature-slot mechanism. It stays visible whenever the
   // banking feature is in play OR the loaded config already turned banking
   // or borrowing on for some year — matching the same OR the backend uses
@@ -928,7 +928,7 @@ export function Editor({
   };
 
   // Context objects handed to feature-module editor slots (see
-  // frontend/src/features/*). Feature components read/write through these
+  // modules/*/frontend). Feature components read/write through these
   // rather than reaching into Editor's closure directly. `activeFeatures`
   // is included so a feature component that embeds ANOTHER feature's field
   // inline (e.g. hotelling embedding elastic_baseline's reference-carbon
