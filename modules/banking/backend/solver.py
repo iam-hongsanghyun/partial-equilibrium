@@ -58,6 +58,62 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _is_static_year(t: int, window: tuple[int, int] | None) -> bool:
+    r"""Is year ``t`` a STATIC-regime year (floor cancellation applies)?
+
+    Floor cancellation is gated to static-regime years (``docs/floor
+    -cancellation-fix.md`` §2 binding refinement): a year inside a MULTI-year
+    banking window holds $P_t \ge F_t$ by intertemporal arbitrage (the auction
+    clears fully, the surplus banks) and must NOT cancel. A degenerate
+    single-year window ($a = b$) prices at static clearing — there is no
+    intertemporal arbitrage in a one-year window — so it is static-regime and
+    DOES cancel (this is the V1 single-year anchor, reported as window (0, 0)).
+
+    Args:
+        t: Year index.
+        window: The banking window ``(a, b)`` from ``solve_banking_window`` for
+            the current supply schedule, or ``None`` for a pure static path.
+
+    Returns:
+        ``True`` iff year ``t`` is static-regime — ``window`` is ``None``, or
+        ``t`` lies outside a multi-year window ``[a, b]`` with ``b > a``, or
+        the window is the degenerate single year ``a == b``.
+    """
+    if window is None:
+        return True
+    a, b = window
+    if b <= a:  # degenerate single-year window: static clearing, no arbitrage
+        return True
+    return not (a <= t <= b)
+
+
+def _is_period_two(
+    latest: list[float], prev: list[float], prev_prev: list[float], tol: float
+) -> bool:
+    r"""Detect a period-2 supply orbit (spec §2 SECONDARY guard).
+
+    The subordinate safety net for any residual multi-year window-boundary
+    orbit the direct complementarity solve does not linearize. A period-2
+    orbit returns to the 2-ago iterate while still bouncing off the 1-ago one:
+
+    Algorithm:
+        ASCII: d1 = max_t |S_k - S_{k-1}|;  d2 = max_t |S_k - S_{k-2}|
+               orbit  <=>  d1 > tol  and  d2 <= tol
+
+    Args:
+        latest: Newest supply iterate $S_k$ [Mt CO2e].
+        prev: Previous iterate $S_{k-1}$ [Mt CO2e].
+        prev_prev: Two-ago iterate $S_{k-2}$ [Mt CO2e].
+        tol: Schedule stability tolerance [Mt CO2e].
+
+    Returns:
+        ``True`` iff the schedule is oscillating with period two.
+    """
+    d1 = max((abs(x - y) for x, y in zip(latest, prev)), default=0.0)
+    d2 = max((abs(x - y) for x, y in zip(latest, prev_prev)), default=0.0)
+    return d1 > tol and d2 <= tol
+
+
 @runtime_checkable
 class FloorRule(Protocol):
     """The banking host's dedicated floor-cancellation slot contract.
@@ -85,15 +141,21 @@ def _supply_schedule(
     initial_bank: float,
     supply_rule_factories: Sequence[SupplyRuleFactory],
     floor_rule_factory: Callable[[], FloorRule],
+    window: tuple[int, int] | None,
 ) -> tuple[list[float], list[dict[str, float]]]:
     """Recompute per-year supply from bank-/price-triggered rules.
 
     Applies, in this order (each reads only beginning-of-year state):
       1. MSR — withhold/release against the previous end-of-year bank
          (``msr_*`` scenario fields, as in the competitive path).
-      2. Reserve-price floor — where the floor exceeds the solved price, the
-         auction sells only the demand at the floor; unsold volume is removed
-         from circulating supply when ``unsold_treatment == "cancel"``.
+      2. Reserve-price floor — where the floor makes a year's auction
+         oversupplied at the floor (``e_t(F_t) < S_t``), the auction sells only
+         the demand at the floor and the unsold volume is removed from
+         circulating supply when ``unsold_treatment == "cancel"``. STATIC-regime
+         years use the price-free ``e_t(F_t) < S_t`` test (kills the pre-fix
+         orbit); WINDOW-regime years cancel only where the floor CLIPS the
+         arbitrage price (``F_t > P_t``) — see the slot below and
+         ``_is_static_year``.
 
     The MSR step is an injected ``SupplyRule`` (work order O6): every rule is
     constructed FRESH from its factory at the top of each evaluation, so a
@@ -105,14 +167,27 @@ def _supply_schedule(
     ``_residual_emissions``) and each rule returns the year's REPLACEMENT
     circulating supply.
 
-    The floor-cancellation step (O10) is
+    The floor-cancellation step (O10; direct-complementarity fix,
+    ``docs/floor-cancellation-fix.md`` §2) is
     ``features.price_controls.rules.FloorCancellationRule``, called from
-    this DEDICATED slot — not the ``SupplyRule`` list — because it reads the
-    CONTEMPORANEOUS year's price from the previous fixed-point iterate, not
-    the lagged ``Observables`` (economist verdict 1c; the ``FloorRule``
-    slot contract above). Its position is load-bearing economics: AFTER the
-    MSR adjustment, on the MSR-adjusted supply, inside the fixed point
-    (MSR-then-floor, ``docs/blocks-composition-rules.md`` §2 item 3).
+    this DEDICATED slot — not the ``SupplyRule`` list — with its binding
+    decision made on FIXED contemporaneous quantities (``e_t(F_t) < S_t``),
+    NOT on the previous iterate's price (economist verdict 1c; the
+    ``FloorRule`` slot contract above). Its position is load-bearing
+    economics: AFTER the MSR adjustment, on the MSR-adjusted supply, inside
+    the fixed point (MSR-then-floor, ``docs/blocks-composition-rules.md`` §2
+    item 3). The HOST gates it by regime (``_is_static_year``): STATIC-regime
+    years apply the rule unconditionally (the price-free ``e_t(F_t) < S_t``
+    test — FIXED base quantities, so the static coupling is monotone, never an
+    orbit); WINDOW-regime years apply it only where ``F_t > P_t`` (the floor
+    clips the arbitrage price). A window year the floor does NOT clip banks its
+    surplus and never cancels (``P_t >= F_t``); a window year the floor DOES
+    clip (the release valve — investment/MSR drags the Hotelling path to the
+    floor) still cancels, preserving the supply-accounting identity and the
+    pre-fix window behaviour byte-for-byte. The window price is
+    budget-determined (not pinned to ``F_t`` on cancellation), so the price
+    test does not reintroduce the static orbit; the subordinate period-2 guard
+    nets any residual window-boundary oscillation.
 
     Args:
         markets: Markets sorted chronologically.
@@ -128,6 +203,10 @@ def _supply_schedule(
             with economist sign-off.
         floor_rule_factory: Zero-argument constructor of the fresh
             floor-cancellation rule for this evaluation.
+        window: The banking window ``(a, b)`` from ``solve_banking_window``
+            for THIS iterate's supplies, or ``None`` for a pure static path;
+            selects each year's regime (``_is_static_year``) for the
+            floor-cancellation gate.
 
     Returns:
         The adjusted supply schedule and per-year diagnostics.
@@ -171,8 +250,26 @@ def _supply_schedule(
 
         # Dedicated floor-cancellation slot: AFTER the MSR rules, on the
         # MSR-adjusted supply (order is economics — see docstring).
-        supplies[t], cancelled = floor_rule.apply_to_year(market, prices[t], supplies[t])
-        diags[t]["floor_unsold_cancelled"] = cancelled
+        #
+        # Regime-aware gating (docs/floor-cancellation-fix.md §2, refined for
+        # the release valve). STATIC years use the DIRECT complementarity
+        # solve — the floor binds iff e_t(F_t) < S_t, on FIXED base quantities,
+        # NOT the lagged price — which removes the exact-boundary discontinuity
+        # that made the pre-fix ``floor > solved_price`` predicate orbit (V1).
+        # WINDOW years keep the price test: the floor binds a window year only
+        # when it CLIPS the arbitrage price (F_t > P_t) — the surplus otherwise
+        # banks and nothing is unsold (V3, the spec's "P_t >= F_t" premise). A
+        # window year the floor DOES clip (investment/MSR pushes the Hotelling
+        # path down to the floor — the release valve, V6) still cancels, so the
+        # supply-accounting identity holds; the pre-fix window behaviour is
+        # preserved byte-for-byte. The window price is budget-determined (not
+        # pinned to F on cancellation), so this test does not reintroduce the
+        # static orbit; the subordinate period-2 guard nets any residual
+        # window-boundary oscillation.
+        floor = float(getattr(market, "auction_reserve_price", 0.0) or 0.0)
+        if _is_static_year(t, window) or floor > prices[t]:
+            supplies[t], cancelled = floor_rule.apply_to_year(market, prices[t], supplies[t])
+            diags[t]["floor_unsold_cancelled"] = cancelled
 
     return supplies, diags
 
@@ -289,6 +386,9 @@ def solve_banking_path(
         for m in ordered_markets
     )
 
+    # Schedule history for the subordinate period-2 orbit guard (spec §2
+    # SECONDARY): each entry is a self-consistent (supplies, diags) iterate.
+    schedule_history: list[tuple[list[float], list[dict[str, float]]]] = []
     for iteration in range(max_iters):
         prices, window = solve_banking_window(
             ordered_markets, g, initial_bank, supplies,
@@ -297,16 +397,41 @@ def solve_banking_path(
         bank = _bank_path(ordered_markets, prices, supplies, initial_bank)
         if not has_rules:
             break
-        new_supplies, diags = _supply_schedule(
+        new_supplies, new_diags = _supply_schedule(
             ordered_markets, prices, bank, initial_bank,
-            supply_rule_factories, floor_rule_factory,
+            supply_rule_factories, floor_rule_factory, window,
         )
         max_delta = max(abs(a - b) for a, b in zip(new_supplies, supplies))
         logger.debug(
             f"Banking supply-rule iteration {iteration}: max Δsupply = "
             f"{max_delta:.4f} Mt"
         )
-        supplies = new_supplies
+        # Subordinate period-2 guard (spec §2 SECONDARY): the direct
+        # complementarity solve linearizes the single-market case, so this is
+        # unreachable there; it is a defensive net for a residual multi-year
+        # window-boundary orbit. On detection take the COMPLEMENTARITY
+        # solution — the phase of the 2-cycle with the MOST cancellation
+        # (smallest circulating supply: P=F, u=base−e(F)) — never an arbitrary
+        # averaged/last iterate (the rejected damping lands off the
+        # complementarity set) — with its self-consistent diagnostics, and stop.
+        if len(schedule_history) >= 2 and _is_period_two(
+            new_supplies, schedule_history[-1][0], schedule_history[-2][0], schedule_tol
+        ):
+            candidates = [(new_supplies, new_diags), schedule_history[-1]]
+            supplies, diags = min(candidates, key=lambda sd: sum(sd[0]))
+            logger.warning(
+                "Banking: floor-cancellation supply schedule oscillates with "
+                f"period 2 at iteration {iteration}; taking the complementarity "
+                "solution (fully-cancelled binding years) and stopping."
+            )
+            prices, window = solve_banking_window(
+                ordered_markets, g, initial_bank, supplies,
+                strict=strict_no_arbitrage, bank_tol=bank_tol, friction=friction,
+            )
+            bank = _bank_path(ordered_markets, prices, supplies, initial_bank)
+            break
+        supplies, diags = new_supplies, new_diags
+        schedule_history.append((new_supplies, new_diags))
         if max_delta <= schedule_tol:
             prices, window = solve_banking_window(
                 ordered_markets, g, initial_bank, supplies,

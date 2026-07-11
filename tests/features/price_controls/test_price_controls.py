@@ -9,9 +9,12 @@ in-clearing floor branch STAYS KERNEL — its permanent property test is
 item (MSR-then-floor order preserved; ``DeliveredFloor`` attach-always exact).
 
 FloorCancellationRule contract (economist verdict 1c): NOT a
-``core.protocols.SupplyRule`` — it reads the CONTEMPORANEOUS year's price
-from the previous fixed-point iterate, so the banking host calls it from a
-dedicated slot AFTER the injected supply rules. Both facts are pinned here.
+``core.protocols.SupplyRule`` — it composes on the CONTEMPORANEOUS year's
+supply in a dedicated host slot AFTER the injected supply rules, not on the
+lagged ``Observables`` a ``SupplyRule`` sees. Since the direct-complementarity
+fix (``docs/floor-cancellation-fix.md`` §2) the rule's binding decision is
+price-free (``e_t(F_t) < S_t`` on fixed quantities); the host gates window-year
+cancellation by the contemporaneous price. Both facts are pinned here.
 
 Anchor economy (hand-solvable, as ``tests/test_banking.py``): one participant,
 BAU E = 100 Mt, linear MAC p = c·a with c = 100, r = 0.05. Supplies
@@ -125,9 +128,9 @@ def test_delivered_floor_satisfies_price_overlay():
 
 
 def test_floor_cancellation_rule_is_deliberately_not_a_supply_rule():
-    """1c: the rule reads the contemporaneous-year price from the previous
-    iterate — it must NOT conform to the lagged-Observables SupplyRule
-    protocol (its host slot is separate, after the supply rules)."""
+    """1c: the rule composes on the contemporaneous-year supply in a dedicated
+    host slot (after the supply rules), not the lagged Observables — so it must
+    NOT conform to the SupplyRule protocol."""
     assert not isinstance(FloorCancellationRule(), SupplyRule)
 
 
@@ -157,11 +160,15 @@ def test_binding_floor_cancels_the_unsold_volume():
 
 
 def test_non_binding_floor_is_a_no_op():
-    """Solved price above the floor: supply passes through untouched."""
+    """Floor slack by the contemporaneous test e(F) >= S: with supply 50 and
+    e(F) = 100 - 2500/100 = 75, demand-at-floor exceeds supply, so nothing is
+    unsold and supply passes through untouched. The rule is price-free — it no
+    longer reads ``solved_price`` (a stale price above the floor no longer
+    fakes a no-op); see ``test_floor_cancellation.py`` V2 for the anchor."""
     supply, cancelled = FloorCancellationRule().apply_to_year(
-        _floor_market(2500.0, "cancel"), solved_price=3000.0, supply=85.0
+        _floor_market(2500.0, "cancel"), solved_price=3000.0, supply=50.0
     )
-    assert (supply, cancelled) == (85.0, 0.0)
+    assert (supply, cancelled) == (50.0, 0.0)
 
 
 def test_reserve_treatment_never_cancels():
