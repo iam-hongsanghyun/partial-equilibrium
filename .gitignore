@@ -14,3 +14,5 @@ examples/k_msr_summary.md
 examples/k_msr_price_paths.png
 src/*.egg-info/
 user-scenarios/
+database/
+.env
