@@ -53,9 +53,10 @@ References:
     docs/feature-modules-plan.md — PLAN v2 §2 protocol family; Arbitration
     outcomes (O7-O10 binding conditions).
     docs/blocks-composition-rules.md — engine findings F1-F6, rules R1-R32.
-    docs/forward-transmission.md — blend-then-clip (transmission immunity).
-    docs/invest-feedback-spec.md — binding economic spec D1-D6 (adoption
-    contracts); docs/invest-feedback-plan.md — "Kernel contracts".
+    modules/transmission/doc/reference.md — blend-then-clip (transmission
+    immunity).
+    modules/endogenous_investment/doc/spec.md — binding economic spec D1-D6
+    (adoption contracts); docs/invest-feedback-plan.md — "Kernel contracts".
 """
 
 from __future__ import annotations
@@ -288,7 +289,7 @@ class PriceOverlay(Protocol):
     Price overlays act AFTER price formation, in a documented, tested order:
     the λ blend is applied FIRST, the floor clip LAST. Clip-last is what
     makes the reserve-price floor transmission-immune (F3,
-    ``docs/forward-transmission.md``; operation-order test in
+    ``modules/transmission/doc/reference.md``; operation-order test in
     ``tests/test_transmission.py``) — clipping components before blending
     would deliver ``(1-λ)·F_t + λ·P_hot > F_t`` in floor-bound years, a
     different (wrong) object. A drawn composition graph must never reorder

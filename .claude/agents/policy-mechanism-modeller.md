@@ -19,7 +19,7 @@ Composition doctrine — order is economics, and it is explicit:
   the hub, one mode per scenario.
 - **Price overlays** (floors, blends) act AFTER clearing in a documented,
   tested order — e.g. λ blend FIRST, floor clip LAST, which is what makes the
-  floor transmission-immune (see docs/forward-transmission.md and the
+  floor transmission-immune (see modules/transmission/doc/reference.md and the
   operation-order test in tests/test_transmission.py).
 - When a mechanism must compose INSIDE a fixed-point path solve (bank-triggered
   MSR on a banking equilibrium; floor-with-cancellation feeding back into

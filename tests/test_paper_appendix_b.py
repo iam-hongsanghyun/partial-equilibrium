@@ -131,7 +131,7 @@ def test_p0_2035_cancellation_baseline(p0_banking_path):
     "textbook no-arbitrage violated, the paper's own λ≈0 reading). The "
     "standard equilibrium opens the window in 2026 and prices 32,701. "
     "Representable via per-year hoarding_inflow once v1.0 MACs and the "
-    "hoarding series are known (see docs/banking-equilibrium.md).",
+    "hoarding series are known (see modules/banking/doc/reference.md).",
 )
 def test_p0_2026(p0_banking_path):
     np.testing.assert_allclose(

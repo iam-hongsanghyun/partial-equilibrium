@@ -1,8 +1,12 @@
-# Feedback Option A — Price-Elastic Baseline
+# Elastic Baseline — Reference
+
+*(Moved from `docs/feedback-price-elastic-baseline.md` — WO-17 doc fold.)*
+
+## Feedback Option A — Price-Elastic Baseline
 
 **Files:** `src/ets/participant/models.py` (`activity_multiplier`), `src/ets/participant/compliance.py` (`_scale_for_activity`)
 **Enabled by:** scenario `reference_carbon_price > 0` **and** participant `output_price_elasticity > 0`
-**Example:** [`examples/feedback_a_price_elastic_baseline.json`](../examples/feedback_a_price_elastic_baseline.json)
+**Example:** [`examples/feedback_a_price_elastic_baseline.json`](../../../examples/feedback_a_price_elastic_baseline.json)
 
 ## What it adds
 
@@ -75,6 +79,6 @@ in the participant results reports `E0 · m(P*)` — i.e. the price-scaled basel
 This is a **reduced-form, own-price** activity response — still partial
 equilibrium. It does **not** capture cross-sector reallocation, income effects,
 or energy-market clearing. For those, couple the tool to a purpose-built model
-(see [Feedback Option B — Coupling](feedback-coupling.md)). The linearisation is
+(see [Feedback Option B — Coupling](../../../docs/feedback-coupling.md)). The linearisation is
 first-order: it is accurate for moderate deviations from `P_ref` and is floored
 at `m = 0` (activity cannot go negative).

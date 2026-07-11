@@ -1,4 +1,8 @@
-# Data Model & Configuration Schema
+# Core — Data Model & Configuration Schema Reference
+
+*(Moved from `docs/data-model.md` — WO-17 doc fold.)*
+
+## Data Model & Configuration Schema
 
 **Files:** `src/ets/config_io/normalize.py`, `src/ets/config_io/builder.py`
 
@@ -81,7 +85,7 @@ A config must contain at least one scenario. Multiple scenarios run independentl
 
 ### CCR fields (Carbon Cap Rule)
 
-The CCR is an adaptive Taylor-rule cap mechanism that adjusts the quantity of permits issued each period in response to deviations in aggregate emissions and abatement cost from their reference levels. See [carbon-cap-rule.md](carbon-cap-rule.md) for the full algorithm and calibration guide. For how CCR interacts with the price-elastic baseline channel, see [feedback-coupling.md](feedback-coupling.md).
+The CCR is an adaptive Taylor-rule cap mechanism that adjusts the quantity of permits issued each period in response to deviations in aggregate emissions and abatement cost from their reference levels. See [carbon-cap-rule.md](../../modules/ccr/doc/reference.md) for the full algorithm and calibration guide. For how CCR interacts with the price-elastic baseline channel, see [feedback-coupling.md](../../docs/feedback-coupling.md).
 
 | Field | Type | Default | Validation | Example | When omitted |
 |---|---|---|---|---|---|
@@ -110,7 +114,7 @@ where Q̄ is the year's `total_cap`, ē is `ccr_reference_emissions`, and z̄ is
 |---|---|---|---|---|---|
 | `reference_carbon_price` | float | `0.0` | ≥ 0 | `30.0` | 0 — price-elastic baseline channel disabled scenario-wide |
 
-`reference_carbon_price` is the undistorted (P_ref) carbon price that anchors the price-elastic activity baseline (Feedback A). When set to a positive value, each participant whose `output_price_elasticity` is also positive will see their BAU activity — and hence their initial emissions — contract as the market price rises above P_ref. Setting this to `0` disables the channel for the whole scenario regardless of participant-level elasticities. See [feedback-price-elastic-baseline.md](feedback-price-elastic-baseline.md) for the full formula and calibration guidance.
+`reference_carbon_price` is the undistorted (P_ref) carbon price that anchors the price-elastic activity baseline (Feedback A). When set to a positive value, each participant whose `output_price_elasticity` is also positive will see their BAU activity — and hence their initial emissions — contract as the market price rises above P_ref. Setting this to `0` disables the channel for the whole scenario regardless of participant-level elasticities. See [feedback-price-elastic-baseline.md](../../modules/elastic_baseline/doc/reference.md) for the full formula and calibration guidance.
 
 ### Solver parameter fields
 
@@ -170,7 +174,7 @@ An empty object `{}` disables the trajectory. If any of the four keys is missing
 
 ### Sectors array
 
-When `sectors[]` is non-empty, the simulator derives `total_cap`, `auction_offered`, and per-participant `free_allocation_ratio` from sector-level definitions, overriding per-year values. See [sector-config.md](sector-config.md) for full documentation.
+When `sectors[]` is non-empty, the simulator derives `total_cap`, `auction_offered`, and per-participant `free_allocation_ratio` from sector-level definitions, overriding per-year values. See [sector-config.md](../../modules/sectors/doc/reference.md) for full documentation.
 
 #### Sector object
 
@@ -430,13 +434,13 @@ Both `production_output` and `benchmark_emission_intensity` must be `> 0` for OB
 
 $$\text{free\_allocation} = \text{benchmark\_emission\_intensity} \times \text{production\_output}$$
 
-See [oba-allocation.md](oba-allocation.md) for worked examples.
+See [oba-allocation.md](../../modules/oba/doc/reference.md) for worked examples.
 
 **`output_price_elasticity`** (ε) is the Feedback A price-elastic activity parameter. When the scenario's `reference_carbon_price` is positive and ε > 0, the participant's baseline activity — and hence BAU emissions — contracts as the market price rises above the reference price. The contraction follows:
 
 $$\text{activity}(P) = \text{activity}_0 \times \left(1 - \varepsilon \cdot \frac{P - P_\text{ref}}{P_\text{ref}}\right)$$
 
-Setting ε = 0 (the default) leaves the participant's activity inelastic regardless of the scenario's `reference_carbon_price`. See [feedback-price-elastic-baseline.md](feedback-price-elastic-baseline.md).
+Setting ε = 0 (the default) leaves the participant's activity inelastic regardless of the scenario's `reference_carbon_price`. See [feedback-price-elastic-baseline.md](../../modules/elastic_baseline/doc/reference.md).
 
 ### CBAM exposure fields
 
@@ -484,7 +488,7 @@ The `grid_emission_factor_trajectory` follows the same interpolation formula as 
 
 ### Technology option fields
 
-See the [Technology Options](#technology-option-object) section below and [technology-transition.md](technology-transition.md).
+See the [Technology Options](#technology-option-object) section below and [technology-transition.md](../../modules/endogenous_investment/doc/reference.md).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -562,7 +566,7 @@ The following three columns are always present in the summary output. They are z
 | `CCR Emissions Deviation` | float | (e_{t-1} − ē) / ē — fractional deviation of the prior year's aggregate emissions from the reference; 0 when `ccr_reference_emissions = 0` |
 | `CCR Cost Deviation` | float | (z_{t-1} − z̄) / z̄ — fractional deviation of the prior year's aggregate abatement cost from the reference; 0 when `ccr_reference_abatement_cost = 0` |
 
-See [carbon-cap-rule.md](carbon-cap-rule.md) for interpretation guidance and sign conventions.
+See [carbon-cap-rule.md](../../modules/ccr/doc/reference.md) for interpretation guidance and sign conventions.
 
 ---
 
@@ -684,12 +688,12 @@ The smallest config that will run without error:
 
 ## See also
 
-- [Algorithm Overview](algorithm-overview.md) — how config flows into the simulation
+- [Algorithm Overview](../../docs/algorithm-overview.md) — how config flows into the simulation
 - [Multi-Year Simulation](multi-year-simulation.md) — banking, borrowing, trajectories
-- [Output-Based Allocation](oba-allocation.md) — OBA fields in depth
-- [Sector Configuration](sector-config.md) — sectors array in depth
+- [Output-Based Allocation](../../modules/oba/doc/reference.md) — OBA fields in depth
+- [Sector Configuration](../../modules/sectors/doc/reference.md) — sectors array in depth
 - [MAC & Abatement Models](mac-abatement.md) — abatement field details
-- [Technology Transition](technology-transition.md) — technology_options field details
-- [Carbon Cap Rule](carbon-cap-rule.md) — CCR algorithm, calibration, and output interpretation
-- [Price-Elastic Baseline](feedback-price-elastic-baseline.md) — Feedback A (`output_price_elasticity`, `reference_carbon_price`)
-- [Feedback Coupling](feedback-coupling.md) — how CCR and price-elastic baseline interact
+- [Technology Transition](../../modules/endogenous_investment/doc/reference.md) — technology_options field details
+- [Carbon Cap Rule](../../modules/ccr/doc/reference.md) — CCR algorithm, calibration, and output interpretation
+- [Price-Elastic Baseline](../../modules/elastic_baseline/doc/reference.md) — Feedback A (`output_price_elasticity`, `reference_carbon_price`)
+- [Feedback Coupling](../../docs/feedback-coupling.md) — how CCR and price-elastic baseline interact

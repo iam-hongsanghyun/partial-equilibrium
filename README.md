@@ -111,7 +111,7 @@ uv run pytest -q
 | [docs/feature-modules-plan.md](docs/feature-modules-plan.md) | Feature-module architecture — import tiers, isolation enforcement, work orders, execution status |
 | [docs/blocks-graph-plan.md](docs/blocks-graph-plan.md) | Block catalogue, graph compiler, composer/manifest API contract |
 | [docs/algorithm-overview.md](docs/algorithm-overview.md) | Solver math — competitive, Hotelling, Nash, MSR, CBAM |
-| [docs/data-model.md](docs/data-model.md) | Every config field — type, default, validation |
+| [core/doc/data-model.md](core/doc/data-model.md) | Every config field — type, default, validation |
 | [docs/tutorials/index.html](docs/tutorials/index.html) | Follow-along walkthrough + ~20-recipe scenario cookbook |
 
 See MANUAL.md's [Documentation Index](MANUAL.md#documentation-index) for the complete list, including per-mechanism docs (OBA, CCR, feedback options, sectors, technology transition).

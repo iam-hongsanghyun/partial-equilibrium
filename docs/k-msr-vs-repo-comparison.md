@@ -78,7 +78,7 @@ re-run from the saved scenario files (see commands above).
 | Cancellation sweep shape | smooth, convex-increasing: +434 / +1,708 / +3,414 / +6,315 / +9,673 / +11,198 at 16→155 Mt | **step function: +7,100 at 16–32 Mt, +20,037 at 64–155 Mt** | non-convex, lumpy | price snaps between MAC block costs (62,100 / 75,037) |
 | Discount-rate sensitivity (App. B.2) | A invariant in r; B sensitive (B-2030 falls 57,120 → 51,825, e-NCC slips 2039 → 2037 as r: 4 → 10 %) | **A and B both trivially r-invariant** | B's sensitivity not reproducible | tool runs the no-banking competitive limit; r enters only via banking |
 | Banking-limit robustness (App. B.3) | B_max 90/70 Mt lifts no-policy 2030 (41,355 → 54,198), 2040 unchanged at 67,461 | **not runnable as an experiment** — tool's path is already the zero-bank limit | n/a | repo's competitive path clears at the cap with zero bank |
-| λ instrument-choice result | central result (three regimes λ→0 / 0.55 / 0.9; floor-aware re-solve ψ=−0.25 → 49,098 / 59,151 / 64,386 in 2030) | **now representable** — `forward_transmission_lambda` blends static/Hotelling prices, floor clipped last; three-regime run delivers an identical floor path from 2028 (paper: from 2030), 2030 = 55,972 in both | regimes differ only above the floor, as in the paper | reduced-form blend (see `docs/forward-transmission.md`); the floor-aware ψ re-solve remains out of scope |
+| λ instrument-choice result | central result (three regimes λ→0 / 0.55 / 0.9; floor-aware re-solve ψ=−0.25 → 49,098 / 59,151 / 64,386 in 2030) | **now representable** — `forward_transmission_lambda` blends static/Hotelling prices, floor clipped last; three-regime run delivers an identical floor path from 2028 (paper: from 2030), 2030 = 55,972 in both | regimes differ only above the floor, as in the paper | reduced-form blend (see `modules/transmission/doc/reference.md`); the floor-aware ψ re-solve remains out of scope |
 | Dixit–Pindyck trigger, 3.86× → 1.83× (6.4× at empirical σ≈0.48) | central result | **now computable** — `ets.analysis.investment_trigger` reproduces 2.86× (σ=0.20), 3.86× (σ=0.30), 6.4× (σ=0.48), r/y ≈ 1.83× (σ→0) | matches paper's worked values (regression-tested) | post-processing on solved paths; σ is an input, not an engine output |
 
 Reproduced four-scenario price paths (KRW/tCO₂, from the saved files):
@@ -146,7 +146,7 @@ implements.
    solved price path. The clearing engine itself stays deterministic — σ is an
    input, and the partial-credibility interior σ_eff(q) is an illustrative
    interpolation the paper leaves unidentified. See
-   `docs/forward-transmission.md`.
+   `modules/transmission/doc/reference.md`.
 
    **Status update (Phase 1, endogenous investment feedback): this specific
    gap — "post-processing on an exogenous price path, not a two-way
@@ -288,7 +288,7 @@ What **transfers faithfully**:
   ~70× ratio) — the rule is closer to a cost-containment mechanism than an
   emissions-tracker. The repo deliberately does **not** hardcode the paper's
   coefficients: they are monthly, normalized-model units and must be rescaled
-  to the scenario's cap (see `docs/carbon-cap-rule.md`).
+  to the scenario's cap (see `modules/ccr/doc/reference.md`).
 - The **price = MAC identity** as the rule's observable — native to a
   MAC-block model.
 
@@ -328,7 +328,7 @@ paper exactly; current status:
 - **Phase 1 — banking equilibrium solver: DONE.**
   `model_approach: "banking"` (Rubin/Schennach, endogenous window, bank ≥ 0,
   boundary no-arbitrage checks, MSR/floor composition via schedule fixed
-  point, `hoarding_inflow` hook). See docs/banking-equilibrium.md. On the
+  point, `hoarding_inflow` hook). See modules/banking/doc/reference.md. On the
   unchanged v0.6 calibration with the paper's 89 Mt carry-in it already
   reproduces the paper's P0 architecture: window 2026–2039, bank peak 2029,
   exhaustion by 2039, static 2040 at 67,828 (+0.5 %), 2030 at 40,511 (−2.0 %).

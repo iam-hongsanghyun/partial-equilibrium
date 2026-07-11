@@ -1,4 +1,8 @@
-# Forward transmission (λ) and the Dixit–Pindyck investment trigger
+# Transmission — Reference
+
+*(Moved from `docs/forward-transmission.md` — WO-17 doc fold.)*
+
+## Forward transmission (λ) and the Dixit–Pindyck investment trigger
 
 Two additions from the K-MSR working paper (PLANiT, July 2026): the
 forward-transmission coefficient λ as a reduced-form price blend

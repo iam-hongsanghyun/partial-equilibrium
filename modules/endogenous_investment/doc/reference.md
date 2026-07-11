@@ -1,4 +1,9 @@
-# Technology Transition & Endogenous Technology Choice
+# Endogenous Investment — Reference
+
+*(Moved from `docs/technology-transition.md` — WO-17 doc fold. Companion:
+[`spec.md`](spec.md) — the binding investment↔price feedback specification.)*
+
+## Technology Transition & Endogenous Technology Choice
 
 **File:** `src/ets/participant.py` — `optimize_compliance()`, `_optimize_mixed_technology_portfolio()`
 
@@ -219,6 +224,6 @@ The wizard applies emission and cost multipliers based on the selected aggressiv
 
 ## See also
 
-- [MAC & Abatement Models](mac-abatement.md) — how each technology's cost is computed
-- [Multi-Year Simulation](multi-year-simulation.md) — how technology choices evolve across years
-- [Algorithm Overview](algorithm-overview.md) — where technology choice fits in the overall flow
+- [MAC & Abatement Models](../../../core/doc/mac-abatement.md) — how each technology's cost is computed
+- [Multi-Year Simulation](../../../core/doc/multi-year-simulation.md) — how technology choices evolve across years
+- [Algorithm Overview](../../../docs/algorithm-overview.md) — where technology choice fits in the overall flow

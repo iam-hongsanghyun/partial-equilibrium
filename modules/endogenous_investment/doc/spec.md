@@ -1,4 +1,10 @@
-# Binding specification: endogenous investment ↔ price feedback (Phase 1)
+# Endogenous Investment — Binding Specification
+
+*(Moved from `docs/invest-feedback-spec.md` — WO-17 doc fold. Companion:
+[`reference.md`](reference.md) — the technology-transition mechanism this
+spec extends with a price-feedback trigger.)*
+
+## Binding specification: endogenous investment ↔ price feedback (Phase 1)
 
 Authored by ets-lead-economist (design gate, 2026-07-11). Binding on the
 architecture and implementation. Sign-off requires equivalence-verifier
