@@ -23,14 +23,33 @@ transport involved for most cases, mirroring
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
 from pe import model_store
 from pe.mcp import models_tools, tools
 
-_BASIC_LINEAR = "climate_solutions_basic_linear"
-_AUCTION_CONTROLS = "climate_solutions_auction_controls"
+# TEST INFRA (not the example library): drive the models-governor tools off the
+# recovered minimal scenarios under tests/fixtures/ by pointing model_store's
+# example root at that directory. The two example ids below are the fixture
+# stems (minimal_scenario == the deleted climate_solutions_basic_linear;
+# minimal_auction_scenario == the deleted climate_solutions_auction_controls).
+FIXTURES_DIR = next(p for p in Path(__file__).resolve().parents if p.name == "tests") / "fixtures"
+
+_BASIC_LINEAR = "minimal_scenario"
+_AUCTION_CONTROLS = "minimal_auction_scenario"
+
+
+@pytest.fixture(autouse=True)
+def _use_fixture_examples(monkeypatch) -> None:
+    """Point ``model_store.EXAMPLES_DIR`` at ``tests/fixtures/`` for every case.
+
+    The tools resolve example ids through ``model_store`` (module-global
+    ``EXAMPLES_DIR``); with the real example library empty, only the recovered
+    fixtures stand in for bundled examples.
+    """
+    monkeypatch.setattr(model_store, "EXAMPLES_DIR", FIXTURES_DIR)
 
 
 # ── (a) list_models / describe_model on a saved model ────────────────────
@@ -77,9 +96,8 @@ def test_describe_model_unknown_id_raises() -> None:
 def test_model_manifest_is_raw_derive_manifest_passthrough() -> None:
     from pe.blocks import derive_manifest
     from pe.config_io import load_config
-    from pe.core.paths import EXAMPLES_DIR
 
-    expected = derive_manifest(load_config(EXAMPLES_DIR / f"{_BASIC_LINEAR}.json"))
+    expected = derive_manifest(load_config(FIXTURES_DIR / f"{_BASIC_LINEAR}.json"))
     assert models_tools.model_manifest(_BASIC_LINEAR) == expected
 
 
@@ -153,8 +171,8 @@ def test_compare_models_rejects_fewer_than_two() -> None:
 
 
 def test_compare_models_multi_scenario_model_needs_scenario_kwarg() -> None:
-    with pytest.raises(ValueError, match="scenario=") :
-        models_tools.compare_models([_BASIC_LINEAR, "climate_solutions_msr_stability"])
+    with pytest.raises(ValueError, match="scenario="):
+        models_tools.compare_models([_BASIC_LINEAR, "minimal_msr_scenario"])
 
 
 # ── (d) sweep_model ────────────────────────────────────────────────────────
@@ -184,9 +202,7 @@ def test_sweep_model_rejects_empty_values() -> None:
 
 def test_sweep_model_rejects_more_than_eight_values() -> None:
     with pytest.raises(ValueError, match="at most 8"):
-        models_tools.sweep_model(
-            _BASIC_LINEAR, "scenarios[0].years[*].total_cap", list(range(9))
-        )
+        models_tools.sweep_model(_BASIC_LINEAR, "scenarios[0].years[*].total_cap", list(range(9)))
 
 
 # ── (e) rename_model / delete_model guards ────────────────────────────────

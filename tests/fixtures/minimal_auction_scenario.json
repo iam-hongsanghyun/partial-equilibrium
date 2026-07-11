@@ -1,0 +1,405 @@
+{
+  "scenarios": [
+    {
+      "name": "Climate Solutions Auction Controls",
+      "years": [
+        {
+          "year": "2025",
+          "total_cap": 205.0,
+          "auction_mode": "explicit",
+          "auction_offered": 70.0,
+          "reserved_allowances": 8.0,
+          "cancelled_allowances": 0.0,
+          "auction_reserve_price": 95.0,
+          "minimum_bid_coverage": 0.75,
+          "unsold_treatment": "carry_forward",
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 180.0,
+          "banking_allowed": true,
+          "borrowing_allowed": false,
+          "borrowing_limit": 0.0,
+          "participants": [
+            {
+              "name": "Steel_Compliance",
+              "initial_emissions": 80.0,
+              "free_allocation_ratio": 0.85,
+              "penalty_price": 180.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 18.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 28.0
+                },
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 58.0
+                },
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 105.0
+                }
+              ]
+            },
+            {
+              "name": "Power_Compliance",
+              "initial_emissions": 110.0,
+              "free_allocation_ratio": 0.25,
+              "penalty_price": 180.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 34.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 10.0,
+                  "marginal_cost": 32.0
+                },
+                {
+                  "amount": 10.0,
+                  "marginal_cost": 72.0
+                },
+                {
+                  "amount": 14.0,
+                  "marginal_cost": 120.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "year": "2030",
+          "total_cap": 188.0,
+          "auction_mode": "explicit",
+          "auction_offered": 62.0,
+          "reserved_allowances": 6.0,
+          "cancelled_allowances": 4.0,
+          "auction_reserve_price": 88.0,
+          "minimum_bid_coverage": 0.7,
+          "unsold_treatment": "reserve",
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 190.0,
+          "banking_allowed": true,
+          "borrowing_allowed": false,
+          "borrowing_limit": 0.0,
+          "participants": [
+            {
+              "name": "Steel_Compliance",
+              "initial_emissions": 76.0,
+              "free_allocation_ratio": 0.8,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 20.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 22.0
+                },
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 48.0
+                },
+                {
+                  "amount": 8.0,
+                  "marginal_cost": 90.0
+                }
+              ]
+            },
+            {
+              "name": "Power_Compliance",
+              "initial_emissions": 104.0,
+              "free_allocation_ratio": 0.2,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 38.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 10.0,
+                  "marginal_cost": 24.0
+                },
+                {
+                  "amount": 12.0,
+                  "marginal_cost": 58.0
+                },
+                {
+                  "amount": 16.0,
+                  "marginal_cost": 98.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "year": "2035",
+          "total_cap": 188.0,
+          "auction_mode": "explicit",
+          "auction_offered": 62.0,
+          "reserved_allowances": 6.0,
+          "cancelled_allowances": 4.0,
+          "auction_reserve_price": 88.0,
+          "minimum_bid_coverage": 0.7,
+          "unsold_treatment": "reserve",
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 190.0,
+          "banking_allowed": true,
+          "borrowing_allowed": false,
+          "borrowing_limit": 0.0,
+          "participants": [
+            {
+              "name": "Steel_Compliance",
+              "initial_emissions": 76.0,
+              "free_allocation_ratio": 0.8,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 20.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 22.0
+                },
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 48.0
+                },
+                {
+                  "amount": 8.0,
+                  "marginal_cost": 90.0
+                }
+              ]
+            },
+            {
+              "name": "Power_Compliance",
+              "initial_emissions": 104.0,
+              "free_allocation_ratio": 0.2,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 38.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 10.0,
+                  "marginal_cost": 24.0
+                },
+                {
+                  "amount": 12.0,
+                  "marginal_cost": 58.0
+                },
+                {
+                  "amount": 16.0,
+                  "marginal_cost": 98.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "year": "2040",
+          "total_cap": 188.0,
+          "auction_mode": "explicit",
+          "auction_offered": 62.0,
+          "reserved_allowances": 6.0,
+          "cancelled_allowances": 4.0,
+          "auction_reserve_price": 88.0,
+          "minimum_bid_coverage": 0.7,
+          "unsold_treatment": "reserve",
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 190.0,
+          "banking_allowed": true,
+          "borrowing_allowed": false,
+          "borrowing_limit": 0.0,
+          "participants": [
+            {
+              "name": "Steel_Compliance",
+              "initial_emissions": 76.0,
+              "free_allocation_ratio": 0.8,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 20.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 22.0
+                },
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 48.0
+                },
+                {
+                  "amount": 8.0,
+                  "marginal_cost": 90.0
+                }
+              ]
+            },
+            {
+              "name": "Power_Compliance",
+              "initial_emissions": 104.0,
+              "free_allocation_ratio": 0.2,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 38.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 10.0,
+                  "marginal_cost": 24.0
+                },
+                {
+                  "amount": 12.0,
+                  "marginal_cost": 58.0
+                },
+                {
+                  "amount": 16.0,
+                  "marginal_cost": 98.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "year": "2045",
+          "total_cap": 188.0,
+          "auction_mode": "explicit",
+          "auction_offered": 62.0,
+          "reserved_allowances": 6.0,
+          "cancelled_allowances": 4.0,
+          "auction_reserve_price": 88.0,
+          "minimum_bid_coverage": 0.7,
+          "unsold_treatment": "reserve",
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 190.0,
+          "banking_allowed": true,
+          "borrowing_allowed": false,
+          "borrowing_limit": 0.0,
+          "participants": [
+            {
+              "name": "Steel_Compliance",
+              "initial_emissions": 76.0,
+              "free_allocation_ratio": 0.8,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 20.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 22.0
+                },
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 48.0
+                },
+                {
+                  "amount": 8.0,
+                  "marginal_cost": 90.0
+                }
+              ]
+            },
+            {
+              "name": "Power_Compliance",
+              "initial_emissions": 104.0,
+              "free_allocation_ratio": 0.2,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 38.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 10.0,
+                  "marginal_cost": 24.0
+                },
+                {
+                  "amount": 12.0,
+                  "marginal_cost": 58.0
+                },
+                {
+                  "amount": 16.0,
+                  "marginal_cost": 98.0
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "year": "2050",
+          "total_cap": 188.0,
+          "auction_mode": "explicit",
+          "auction_offered": 62.0,
+          "reserved_allowances": 6.0,
+          "cancelled_allowances": 4.0,
+          "auction_reserve_price": 88.0,
+          "minimum_bid_coverage": 0.7,
+          "unsold_treatment": "reserve",
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 190.0,
+          "banking_allowed": true,
+          "borrowing_allowed": false,
+          "borrowing_limit": 0.0,
+          "participants": [
+            {
+              "name": "Steel_Compliance",
+              "initial_emissions": 76.0,
+              "free_allocation_ratio": 0.8,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 20.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 22.0
+                },
+                {
+                  "amount": 6.0,
+                  "marginal_cost": 48.0
+                },
+                {
+                  "amount": 8.0,
+                  "marginal_cost": 90.0
+                }
+              ]
+            },
+            {
+              "name": "Power_Compliance",
+              "initial_emissions": 104.0,
+              "free_allocation_ratio": 0.2,
+              "penalty_price": 190.0,
+              "abatement_type": "piecewise",
+              "max_abatement": 38.0,
+              "cost_slope": 1.0,
+              "threshold_cost": 0.0,
+              "mac_blocks": [
+                {
+                  "amount": 10.0,
+                  "marginal_cost": 24.0
+                },
+                {
+                  "amount": 12.0,
+                  "marginal_cost": 58.0
+                },
+                {
+                  "amount": 16.0,
+                  "marginal_cost": 98.0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

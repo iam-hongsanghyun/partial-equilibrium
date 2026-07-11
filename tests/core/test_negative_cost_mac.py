@@ -2,25 +2,18 @@
 
 Real marginal-abatement-cost curves include net-saving measures with a negative
 marginal cost. These must load (amount stays non-negative, marginal_cost may be
-negative) and be abated even at a low carbon price. The K-ETS Outlook example
-exercises this end to end.
+negative) and be abated even at a low carbon price.
+
+(The end-to-end K-ETS Outlook example replay that used to close this file was
+dropped with the example library it loaded.)
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import pytest
 
 from pe.config_io import build_participant
 from pe.core.costs import piecewise_abatement_factory
-from pe.engine import run_simulation_from_file
-
-KETS = (
-    Path(__file__).resolve().parents[2]
-    / "examples"
-    / "climate_solutions_k_ets_outlook.json"
-)
 
 
 def test_piecewise_factory_accepts_negative_marginal_cost():
@@ -60,12 +53,3 @@ def test_participant_with_negative_cost_block_builds_and_abates():
     # (allow a small tolerance from the bounded scalar optimiser).
     outcome = p.optimize_compliance(5.0)
     assert outcome.abatement == pytest.approx(8.0, abs=1e-3)
-
-
-def test_kets_outlook_example_runs():
-    summary, _ = run_simulation_from_file(str(KETS))
-    assert summary["Scenario"].nunique() == 3
-    # Prices are finite and non-negative across all scenario-years.
-    prices = summary["Equilibrium Carbon Price"]
-    assert prices.notna().all()
-    assert (prices >= 0).all()

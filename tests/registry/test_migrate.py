@@ -25,16 +25,23 @@ from pathlib import Path
 
 from pe.blocks import graph_from_config
 from pe.config_io import load_config, save_config
-from pe.core.paths import EXAMPLES_DIR
 from pe.engine import run_simulation_from_config
 from pe.model_store import compile_graph_or_raise, resolve_model_config, resolve_model_graph
 from pe.registry.config import get_backend_for_directory
 from pe.registry.migrate import migrate_user_scenarios_to_sqlite
 
+# TEST INFRA (not the example library): the canonical minimal competitive
+# scenario recovered under tests/fixtures/ as a generic valid config.
+MINIMAL_SCENARIO = (
+    next(p for p in Path(__file__).resolve().parents if p.name == "tests")
+    / "fixtures"
+    / "minimal_scenario.json"
+)
+
 
 def _sample_graph():
-    """A real, valid composer graph decompiled from a bundled example."""
-    config = load_config(EXAMPLES_DIR / "climate_solutions_basic_linear.json")
+    """A real, valid composer graph decompiled from the minimal test fixture."""
+    config = load_config(MINIMAL_SCENARIO)
     return graph_from_config(config)
 
 

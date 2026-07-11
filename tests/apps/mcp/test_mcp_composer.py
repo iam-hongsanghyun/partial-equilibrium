@@ -26,11 +26,17 @@ drives the WSGI app in-process. Covers:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
 from pe import model_store
 from pe.mcp import tools
+
+# TEST INFRA (not the example library): the recovered minimal competitive
+# scenario stands in for a bundled example when a case asserts the example
+# listing is non-empty (its stem is ``minimal_scenario``).
+FIXTURES_DIR = next(p for p in Path(__file__).resolve().parents if p.name == "tests") / "fixtures"
 
 
 # ── (a) new_graph() minimal skeleton ─────────────────────────────────────
@@ -130,6 +136,7 @@ def test_run_model_invalid_graph_raises_model_store_error() -> None:
 
 def test_save_model_round_trips_and_lists(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(model_store, "USER_SCENARIOS_DIR", tmp_path)
+    monkeypatch.setattr(model_store, "EXAMPLES_DIR", FIXTURES_DIR)
 
     graph = tools.new_graph()["graph"]
     saved = tools.save_model(graph, "My Saved Model")
@@ -148,7 +155,7 @@ def test_save_model_round_trips_and_lists(tmp_path, monkeypatch) -> None:
     assert reopened == graph
 
     example_ids = {m["id"] for m in listed["models"] if m["source"] == "example"}
-    assert "climate_solutions_basic_linear" in example_ids
+    assert "minimal_scenario" in example_ids
 
 
 def test_save_model_empty_name_raises(tmp_path, monkeypatch) -> None:

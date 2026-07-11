@@ -20,30 +20,18 @@ the host's staged literal, a reporter's column dict, or the reporter
 attachment order in `config_io/builder.py` no longer reproduces today's
 column order.
 
-Reference scenarios (chosen for coverage of the three attach-always
-reporter families):
-    climate_solutions_basic_linear    — no CBAM/sector config (neutral /
-                                         zero-valued CBAM + MSR/CCR columns).
-    climate_solutions_cbam_exposure   — CBAM jurisdictions configured (still
-                                         only fixed-name columns for these
-                                         three scenarios; no dynamic
-                                         per-jurisdiction/ensemble columns).
-    k_ets_subsector_decomposition     — sectors configured (sector aggregate
-                                         + percentile columns exercised).
-    investment_competitive_transition — endogenous investment configured
-                                         (EI-7 fourth pin; plan D3,
-                                         docs/invest-feedback-plan.md):
-                                         unlike the attach-always reporter
-                                         families above, the four
-                                         ``Investment *`` columns are
-                                         GUARDED (key-presence in
-                                         core/ledger.py, the banking-columns
-                                         precedent) and land at the summary
-                                         TAIL, after the per-participant
-                                         block; the participant frame gains
-                                         NO columns in v1. Captured from the
-                                         solved example at authoring time
-                                         (EI-7).
+Reference scenario:
+    climate_solutions_basic_linear (recovered as tests/fixtures/
+    minimal_scenario.json) — no CBAM/sector config, so it emits the neutral /
+    zero-valued CBAM + MSR/CCR columns and pins the base column order.
+
+    The former CBAM (climate_solutions_cbam_exposure), sectors
+    (k_ets_subsector_decomposition) and endogenous-investment
+    (investment_competitive_transition) pins replayed deleted examples with no
+    recovered fixture and were dropped with the example library; the
+    column-order contract they guarded is machinery proved by the single
+    surviving fixture, and their per-feature column families remain covered by
+    their own feature suites.
 """
 
 from __future__ import annotations
@@ -57,8 +45,18 @@ from pe.core.costs import linear_abatement_factory
 from pe.core.market import CarbonMarket
 from pe.core.participant import MarketParticipant
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLES_DIR = REPO_ROOT / "examples"
+# TEST INFRA (not the example library): the pinned column-order gate now runs
+# on the recovered minimal competitive fixture. The CBAM/sectors/investment
+# pins that used to accompany the basic-linear pin here replayed deleted
+# examples with no recovered fixture and were dropped; one fixture proves the
+# column-order contract, which is machinery, not example-specific values.
+FIXTURE_CONFIGS: dict[str, Path] = {
+    "climate_solutions_basic_linear": (
+        next(p for p in Path(__file__).resolve().parents if p.name == "tests")
+        / "fixtures"
+        / "minimal_scenario.json"
+    ),
+}
 
 _PINNED_COLUMNS: dict[str, dict[str, list[str]]] = {
     "climate_solutions_basic_linear": {
@@ -157,354 +155,14 @@ _PINNED_COLUMNS: dict[str, dict[str, list[str]]] = {
             "Year",
         ],
     },
-    "climate_solutions_cbam_exposure": {
-        "summary_columns": [
-            "Scenario",
-            "Equilibrium Carbon Price",
-            "Total Abatement",
-            "Total Allowance Buys",
-            "Total Allowance Sells",
-            "Total Penalty Emissions",
-            "Total Net Allowances Traded",
-            "Auction Offered",
-            "Auction Sold",
-            "Unsold Allowances",
-            "Auction Coverage Ratio",
-            "Reserved Allowances",
-            "Cancelled Allowances",
-            "Unallocated Allowances",
-            "Total Auction Revenue",
-            "Total Starting Bank",
-            "Total Ending Bank",
-            "Total Banked Allowances",
-            "Total Borrowed Allowances",
-            "Expectation Rule",
-            "Manual Expected Price",
-            "Total Compliance Cost",
-            "EUA Price",
-            "CBAM Gap",
-            "Total CBAM Liability",
-            "Total Cost incl. CBAM",
-            "MSR Withheld",
-            "MSR Released",
-            "MSR Reserve Pool",
-            "CCR Cap Adjustment",
-            "CCR Emissions Deviation",
-            "CCR Cost Deviation",
-            "Year",
-            "Domestic Retained Revenue",
-            "CBAM Foregone Revenue",
-            "Potential Revenue if KAU=EUA",
-            "Total Indirect Emissions",
-            "Total Scope 2 CBAM Liability",
-            "Steel Technology",
-            "Steel Technology Mix",
-            "Steel Abatement",
-            "Steel Net Trade",
-            "Petrochemical Technology",
-            "Petrochemical Technology Mix",
-            "Petrochemical Abatement",
-            "Petrochemical Net Trade",
-            "Power Technology",
-            "Power Technology Mix",
-            "Power Abatement",
-            "Power Net Trade",
-        ],
-        "participant_columns": [
-            "Scenario",
-            "Participant",
-            "Sector Group",
-            "Chosen Technology",
-            "Technology Mix",
-            "Initial Emissions",
-            "Free Allocation",
-            "Abatement",
-            "Residual Emissions",
-            "Allowance Buys",
-            "Allowance Sells",
-            "Penalty Emissions",
-            "Net Allowances Traded",
-            "Starting Bank Balance",
-            "Ending Bank Balance",
-            "Banked Allowances",
-            "Borrowed Allowances",
-            "Expected Future Price",
-            "Fixed Technology Cost",
-            "Abatement Cost",
-            "Allowance Cost",
-            "Penalty Cost",
-            "Sales Revenue",
-            "Total Compliance Cost",
-            "EUA Price",
-            "CBAM Gap",
-            "CBAM Export Share",
-            "CBAM Liable Emissions",
-            "CBAM Liability",
-            "Total Cost incl. CBAM",
-            "Electricity Consumption",
-            "Grid Emission Factor",
-            "Indirect Emissions",
-            "Scope 2 CBAM Coverage",
-            "Scope 2 CBAM Liability",
-            "Year",
-        ],
-    },
-    "investment_competitive_transition": {
-        "summary_columns": [
-            "Scenario",
-            "Equilibrium Carbon Price",
-            "Total Abatement",
-            "Total Allowance Buys",
-            "Total Allowance Sells",
-            "Total Penalty Emissions",
-            "Total Net Allowances Traded",
-            "Auction Offered",
-            "Auction Sold",
-            "Unsold Allowances",
-            "Auction Coverage Ratio",
-            "Reserved Allowances",
-            "Cancelled Allowances",
-            "Unallocated Allowances",
-            "Total Auction Revenue",
-            "Total Starting Bank",
-            "Total Ending Bank",
-            "Total Banked Allowances",
-            "Total Borrowed Allowances",
-            "Expectation Rule",
-            "Manual Expected Price",
-            "Total Compliance Cost",
-            "EUA Price",
-            "CBAM Gap",
-            "Total CBAM Liability",
-            "Total Cost incl. CBAM",
-            "MSR Withheld",
-            "MSR Released",
-            "MSR Reserve Pool",
-            "CCR Cap Adjustment",
-            "CCR Emissions Deviation",
-            "CCR Cost Deviation",
-            "Year",
-            "Domestic Retained Revenue",
-            "CBAM Foregone Revenue",
-            "Potential Revenue if KAU=EUA",
-            "Total Indirect Emissions",
-            "Total Scope 2 CBAM Liability",
-            "Steel Technology",
-            "Steel Technology Mix",
-            "Steel Abatement",
-            "Steel Net Trade",
-            "Investment Adoptions",
-            "Investment Newly Effective",
-            "Investment Feedback Iterations",
-            "Investment Converged",
-        ],
-        "participant_columns": [
-            "Scenario",
-            "Participant",
-            "Sector Group",
-            "Chosen Technology",
-            "Technology Mix",
-            "Initial Emissions",
-            "Free Allocation",
-            "Abatement",
-            "Residual Emissions",
-            "Allowance Buys",
-            "Allowance Sells",
-            "Penalty Emissions",
-            "Net Allowances Traded",
-            "Starting Bank Balance",
-            "Ending Bank Balance",
-            "Banked Allowances",
-            "Borrowed Allowances",
-            "Expected Future Price",
-            "Fixed Technology Cost",
-            "Abatement Cost",
-            "Allowance Cost",
-            "Penalty Cost",
-            "Sales Revenue",
-            "Total Compliance Cost",
-            "EUA Price",
-            "CBAM Gap",
-            "CBAM Export Share",
-            "CBAM Liable Emissions",
-            "CBAM Liability",
-            "Total Cost incl. CBAM",
-            "Electricity Consumption",
-            "Grid Emission Factor",
-            "Indirect Emissions",
-            "Scope 2 CBAM Coverage",
-            "Scope 2 CBAM Liability",
-            "Year",
-        ],
-    },
-    "k_ets_subsector_decomposition": {
-        "summary_columns": [
-            "Scenario",
-            "Equilibrium Carbon Price",
-            "Total Abatement",
-            "Total Allowance Buys",
-            "Total Allowance Sells",
-            "Total Penalty Emissions",
-            "Total Net Allowances Traded",
-            "Auction Offered",
-            "Auction Sold",
-            "Unsold Allowances",
-            "Auction Coverage Ratio",
-            "Reserved Allowances",
-            "Cancelled Allowances",
-            "Unallocated Allowances",
-            "Total Auction Revenue",
-            "Total Starting Bank",
-            "Total Ending Bank",
-            "Total Banked Allowances",
-            "Total Borrowed Allowances",
-            "Expectation Rule",
-            "Manual Expected Price",
-            "Total Compliance Cost",
-            "EUA Price",
-            "CBAM Gap",
-            "Total CBAM Liability",
-            "Total Cost incl. CBAM",
-            "MSR Withheld",
-            "MSR Released",
-            "MSR Reserve Pool",
-            "CCR Cap Adjustment",
-            "CCR Emissions Deviation",
-            "CCR Cost Deviation",
-            "Year",
-            "Domestic Retained Revenue",
-            "CBAM Foregone Revenue",
-            "Potential Revenue if KAU=EUA",
-            "Total Indirect Emissions",
-            "Total Scope 2 CBAM Liability",
-            "Petrochemical:BTX Total Abatement",
-            "Petrochemical:BTX Total Compliance Cost",
-            "Petrochemical:BTX Total CBAM Liability",
-            "Petrochemical:BTX Allowance Buys",
-            "Petrochemical:BTX Allowance Cost",
-            "Petrochemical:BTX Auction Revenue Share",
-            "Petrochemical:BTX Indirect Emissions",
-            "Petrochemical:BTX Scope 2 CBAM Liability",
-            "Petrochemical:NCC Total Abatement",
-            "Petrochemical:NCC Total Compliance Cost",
-            "Petrochemical:NCC Total CBAM Liability",
-            "Petrochemical:NCC Allowance Buys",
-            "Petrochemical:NCC Allowance Cost",
-            "Petrochemical:NCC Auction Revenue Share",
-            "Petrochemical:NCC Indirect Emissions",
-            "Petrochemical:NCC Scope 2 CBAM Liability",
-            "Steel:EAF Total Abatement",
-            "Steel:EAF Total Compliance Cost",
-            "Steel:EAF Total CBAM Liability",
-            "Steel:EAF Allowance Buys",
-            "Steel:EAF Allowance Cost",
-            "Steel:EAF Auction Revenue Share",
-            "Steel:EAF Indirect Emissions",
-            "Steel:EAF Scope 2 CBAM Liability",
-            "Steel:Integrated Total Abatement",
-            "Steel:Integrated Total Compliance Cost",
-            "Steel:Integrated Total CBAM Liability",
-            "Steel:Integrated Allowance Buys",
-            "Steel:Integrated Allowance Cost",
-            "Steel:Integrated Auction Revenue Share",
-            "Steel:Integrated Indirect Emissions",
-            "Steel:Integrated Scope 2 CBAM Liability",
-            "Petrochemical:BTX P10 Compliance Cost",
-            "Petrochemical:BTX P50 Compliance Cost",
-            "Petrochemical:BTX P90 Compliance Cost",
-            "Petrochemical:BTX Cost Std Dev",
-            "Petrochemical:NCC P10 Compliance Cost",
-            "Petrochemical:NCC P50 Compliance Cost",
-            "Petrochemical:NCC P90 Compliance Cost",
-            "Petrochemical:NCC Cost Std Dev",
-            "Steel:EAF P10 Compliance Cost",
-            "Steel:EAF P50 Compliance Cost",
-            "Steel:EAF P90 Compliance Cost",
-            "Steel:EAF Cost Std Dev",
-            "Steel:Integrated P10 Compliance Cost",
-            "Steel:Integrated P50 Compliance Cost",
-            "Steel:Integrated P90 Compliance Cost",
-            "Steel:Integrated Cost Std Dev",
-            "POSCO_Pohang_BF Technology",
-            "POSCO_Pohang_BF Technology Mix",
-            "POSCO_Pohang_BF Abatement",
-            "POSCO_Pohang_BF Net Trade",
-            "POSCO_Gwangyang_BF Technology",
-            "POSCO_Gwangyang_BF Technology Mix",
-            "POSCO_Gwangyang_BF Abatement",
-            "POSCO_Gwangyang_BF Net Trade",
-            "Hyundai_Steel_EAF Technology",
-            "Hyundai_Steel_EAF Technology Mix",
-            "Hyundai_Steel_EAF Abatement",
-            "Hyundai_Steel_EAF Net Trade",
-            "SeAH_Steel_EAF Technology",
-            "SeAH_Steel_EAF Technology Mix",
-            "SeAH_Steel_EAF Abatement",
-            "SeAH_Steel_EAF Net Trade",
-            "LG_Chem_NCC Technology",
-            "LG_Chem_NCC Technology Mix",
-            "LG_Chem_NCC Abatement",
-            "LG_Chem_NCC Net Trade",
-            "Lotte_Chemical_NCC Technology",
-            "Lotte_Chemical_NCC Technology Mix",
-            "Lotte_Chemical_NCC Abatement",
-            "Lotte_Chemical_NCC Net Trade",
-            "SK_Innovation_BTX Technology",
-            "SK_Innovation_BTX Technology Mix",
-            "SK_Innovation_BTX Abatement",
-            "SK_Innovation_BTX Net Trade",
-            "Hanwha_Solutions_BTX Technology",
-            "Hanwha_Solutions_BTX Technology Mix",
-            "Hanwha_Solutions_BTX Abatement",
-            "Hanwha_Solutions_BTX Net Trade",
-        ],
-        "participant_columns": [
-            "Scenario",
-            "Participant",
-            "Sector Group",
-            "Chosen Technology",
-            "Technology Mix",
-            "Initial Emissions",
-            "Free Allocation",
-            "Abatement",
-            "Residual Emissions",
-            "Allowance Buys",
-            "Allowance Sells",
-            "Penalty Emissions",
-            "Net Allowances Traded",
-            "Starting Bank Balance",
-            "Ending Bank Balance",
-            "Banked Allowances",
-            "Borrowed Allowances",
-            "Expected Future Price",
-            "Fixed Technology Cost",
-            "Abatement Cost",
-            "Allowance Cost",
-            "Penalty Cost",
-            "Sales Revenue",
-            "Total Compliance Cost",
-            "EUA Price",
-            "CBAM Gap",
-            "CBAM Export Share",
-            "CBAM Liable Emissions",
-            "CBAM Liability",
-            "Total Cost incl. CBAM",
-            "Electricity Consumption",
-            "Grid Emission Factor",
-            "Indirect Emissions",
-            "Scope 2 CBAM Coverage",
-            "Scope 2 CBAM Liability",
-            "Year",
-        ],
-    },
 }
 
 
 @pytest.mark.parametrize("scenario_name", sorted(_PINNED_COLUMNS))
 def test_pinned_column_order(scenario_name: str) -> None:
     """The engine's participant/summary column order matches the pre-refactor pin."""
-    config_path = EXAMPLES_DIR / f"{scenario_name}.json"
-    assert config_path.exists(), f"Reference example missing: {config_path}"
+    config_path = FIXTURE_CONFIGS[scenario_name]
+    assert config_path.exists(), f"Reference fixture missing: {config_path}"
 
     summary_df, participant_df = run_simulation_from_file(config_path)
     pinned = _PINNED_COLUMNS[scenario_name]

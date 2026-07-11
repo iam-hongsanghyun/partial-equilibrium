@@ -6,20 +6,12 @@ identical to the inelastic tool), and the end-to-end demand-destruction effect.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
 from pe.config_io import build_participant
 from pe.features.elastic_baseline.plugin import stamp_and_attach
-from pe.engine import run_simulation_from_config, run_simulation_from_file
-
-EXAMPLE = (
-    Path(__file__).resolve().parents[3]
-    / "examples"
-    / "feedback_a_price_elastic_baseline.json"
-)
+from pe.engine import run_simulation_from_config
 
 
 def _participant(eps: float, p_ref: float):
@@ -102,8 +94,26 @@ def _single_year(eps: float, p_ref: float) -> dict:
                         "price_upper_bound": 400.0,
                         "banking_allowed": False,
                         "participants": [
-                            {"name": "Steel", "initial_emissions": 200.0, "free_allocation_ratio": 0.3, "penalty_price": 400.0, "abatement_type": "linear", "max_abatement": 60.0, "cost_slope": 2.5, "output_price_elasticity": eps},
-                            {"name": "Power", "initial_emissions": 250.0, "free_allocation_ratio": 0.2, "penalty_price": 400.0, "abatement_type": "linear", "max_abatement": 100.0, "cost_slope": 1.5, "output_price_elasticity": eps},
+                            {
+                                "name": "Steel",
+                                "initial_emissions": 200.0,
+                                "free_allocation_ratio": 0.3,
+                                "penalty_price": 400.0,
+                                "abatement_type": "linear",
+                                "max_abatement": 60.0,
+                                "cost_slope": 2.5,
+                                "output_price_elasticity": eps,
+                            },
+                            {
+                                "name": "Power",
+                                "initial_emissions": 250.0,
+                                "free_allocation_ratio": 0.2,
+                                "penalty_price": 400.0,
+                                "abatement_type": "linear",
+                                "max_abatement": 100.0,
+                                "cost_slope": 1.5,
+                                "output_price_elasticity": eps,
+                            },
                         ],
                     }
                 ],
@@ -127,26 +137,3 @@ def test_contraction_lowers_price_when_reference_below_equilibrium():
     p_base = float(base["Equilibrium Carbon Price"].iloc[0])
     p_elastic = float(elastic["Equilibrium Carbon Price"].iloc[0])
     assert p_elastic < p_base
-
-
-def test_example_elastic_path_is_flatter_and_lower():
-    summary, _ = run_simulation_from_file(str(EXAMPLE))
-    fixed = summary[summary["Scenario"] == "Fixed Baseline (inelastic)"].sort_values("Year")
-    elastic = summary[summary["Scenario"] == "Price-Elastic Baseline"].sort_values("Year")
-    fp = fixed["Equilibrium Carbon Price"].to_numpy()
-    ep = elastic["Equilibrium Carbon Price"].to_numpy()
-    # Lower level and a flatter (smaller peak-to-trough) path under the elastic baseline.
-    assert ep.max() < fp.max()
-    assert (ep.max() - ep.min()) < (fp.max() - fp.min())
-
-
-def test_example_reports_scaled_activity():
-    """The participant 'Initial Emissions' column reflects E0*m(P) once elastic."""
-    _, participants = run_simulation_from_file(str(EXAMPLE))
-    el = participants[
-        (participants["Scenario"] == "Price-Elastic Baseline")
-        & (participants["Year"] == "2030")
-        & (participants["Participant"] == "Steel")
-    ]
-    scaled = float(el["Initial Emissions"].iloc[0])
-    assert scaled < 180.0  # nominal baseline was 180 Mt; high price contracted it

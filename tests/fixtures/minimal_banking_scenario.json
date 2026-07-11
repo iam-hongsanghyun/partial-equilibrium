@@ -1,0 +1,348 @@
+{
+  "description": {
+    "title": "K-ETS structural hoarding on the banking equilibrium (small, fast)",
+    "paper": "PLANiT K-MSR working paper (July 2026), Sections 3-4: compliance entities bank against future tightening without pricing the carry (registry banked-to-certified ratio rising 0.03 -> 0.17); repo mechanism docs in solvers/banking.py module docstring.",
+    "mechanism": "hoarding_inflow h_t [Mt] is withdrawn from the year's circulating supply (raising that year's static price), accumulates in the aggregate bank, and re-enters the window budget when the drawdown window opens. Hoarding years are static-regime years BY DEFINITION: the banking window never starts at or before a year with h_t > 0. Requires model_approach = banking; banking_strict_no_arbitrage = false (R20: hoarding is the documented lambda ~ 0 no-arbitrage violation).",
+    "inputs": "Cap 100 -> 80 Mt over 2026-2030 (KRW prices), 2 linear-MAC participants (BAU 110 -> 98 Mt), no free allocation, r = 5.5%; hoarding scenario withdraws 8 Mt in 2026 and 6 Mt in 2027.",
+    "expected_output": {
+      "no hoarding (2026-2030)": [
+        6670.25,
+        7037.11,
+        7424.16,
+        7832.48,
+        8263.27
+      ],
+      "hoarding (2026-2030)": [
+        9572.73,
+        9572.73,
+        5707.6,
+        6021.52,
+        6352.7
+      ],
+      "reading": "Without hoarding the whole horizon is one banking window: a pure Hotelling ramp at exactly (1+r) = 1.055 per year. With hoarding, 2026-27 are static years at an ELEVATED price (the shortage-plus-hoard 18 Mt clears against the residual MAC in both years), and the window opens in 2028 with the 14 Mt hoard re-entering the budget - prices DROP by ~40% and then ramp at 5.5%/yr again. The hoard shifts scarcity from the future into the present and back."
+    },
+    "run": "PYTHONPATH=src .venv/bin/python -m ets.cli --config examples/k_ets_hoarding_basic.json"
+  },
+  "scenarios": [
+    {
+      "name": "Textbook banking (no hoarding)",
+      "model_approach": "banking",
+      "discount_rate": 0.055,
+      "banking_initial_bank": 0.0,
+      "banking_strict_no_arbitrage": false,
+      "years": [
+        {
+          "year": "2026",
+          "total_cap": 100.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 65.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 45.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ]
+        },
+        {
+          "year": "2027",
+          "total_cap": 95.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 63.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 44.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ]
+        },
+        {
+          "year": "2028",
+          "total_cap": 90.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 61.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 43.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ]
+        },
+        {
+          "year": "2029",
+          "total_cap": 85.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 59.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 42.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ]
+        },
+        {
+          "year": "2030",
+          "total_cap": 80.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 57.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 41.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Structural hoarding 2026-27",
+      "model_approach": "banking",
+      "discount_rate": 0.055,
+      "banking_initial_bank": 0.0,
+      "banking_strict_no_arbitrage": false,
+      "years": [
+        {
+          "year": "2026",
+          "total_cap": 100.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 65.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 45.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ],
+          "hoarding_inflow": 8.0
+        },
+        {
+          "year": "2027",
+          "total_cap": 95.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 63.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 44.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ],
+          "hoarding_inflow": 6.0
+        },
+        {
+          "year": "2028",
+          "total_cap": 90.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 61.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 43.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ]
+        },
+        {
+          "year": "2029",
+          "total_cap": 85.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 59.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 42.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ]
+        },
+        {
+          "year": "2030",
+          "total_cap": 80.0,
+          "auction_mode": "derive_from_cap",
+          "banking_allowed": false,
+          "borrowing_allowed": false,
+          "price_lower_bound": 0.0,
+          "price_upper_bound": 300000.0,
+          "expectation_rule": "next_year_baseline",
+          "participants": [
+            {
+              "name": "Power",
+              "initial_emissions": 57.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 35.0,
+              "cost_slope": 900.0
+            },
+            {
+              "name": "Industry",
+              "initial_emissions": 41.0,
+              "free_allocation_ratio": 0.0,
+              "penalty_price": 0.0,
+              "abatement_type": "linear",
+              "max_abatement": 25.0,
+              "cost_slope": 1300.0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

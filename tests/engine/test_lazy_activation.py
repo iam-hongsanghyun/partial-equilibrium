@@ -61,8 +61,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLES_DIR = REPO_ROOT / "examples"
+# TEST INFRA (not the example library): recovered minimal scenarios under
+# tests/fixtures/, each with the feature footprint the case exercises.
+FIXTURES_DIR = next(p for p in Path(__file__).resolve().parents if p.name == "tests") / "fixtures"
 
 # The complete universe of RUNTIME modules this suite polices: the five
 # approach solvers, the MSR/CCR rule runtimes (split by file, since
@@ -136,18 +137,18 @@ def _feature_modules_loaded(code: str) -> frozenset[str]:
 
 
 def _run_example_code(scenario_filename: str) -> str:
-    """Return the ``python -c`` body that solves one ``examples/*.json`` scenario.
+    """Return the ``python -c`` body that solves one fixture scenario.
 
     Args:
-        scenario_filename: File name under ``examples/`` (e.g.
-            ``"climate_solutions_basic_linear.json"``).
+        scenario_filename: File name under ``tests/fixtures/`` (e.g.
+            ``"minimal_scenario.json"``).
 
     Returns:
         Source solving the scenario via ``pe.engine.run_simulation_from_file``
         — the entry point named in the owner directive.
     """
-    config_path = EXAMPLES_DIR / scenario_filename
-    assert config_path.exists(), f"example scenario missing: {config_path}"
+    config_path = FIXTURES_DIR / scenario_filename
+    assert config_path.exists(), f"fixture scenario missing: {config_path}"
     return (
         "from pe.engine import run_simulation_from_file\n"
         f"run_simulation_from_file(r{str(config_path)!r})\n"
@@ -164,8 +165,7 @@ def _assert_only(loaded: frozenset[str], *, present: set[str]) -> None:
     """
     missing = present - loaded
     assert not missing, (
-        f"expected runtime module(s) did not load: {sorted(missing)} "
-        f"(loaded: {sorted(loaded)})"
+        f"expected runtime module(s) did not load: {sorted(missing)} (loaded: {sorted(loaded)})"
     )
     forbidden = _ALL_RUNTIME_MODULES - present
     hit = loaded & forbidden
@@ -177,9 +177,7 @@ def test_competitive_only_activates_only_the_competitive_solver() -> None:
     nothing else in ``_ALL_RUNTIME_MODULES`` — not banking, hotelling, Nash,
     transmission, nor the (unconfigured) MSR/CCR rule runtimes.
     """
-    loaded = _feature_modules_loaded(
-        _run_example_code("climate_solutions_basic_linear.json")
-    )
+    loaded = _feature_modules_loaded(_run_example_code("minimal_scenario.json"))
     _assert_only(loaded, present={"pe.features.competitive.solver"})
 
 
@@ -193,7 +191,7 @@ def test_banking_activates_the_banking_solver_not_hotelling() -> None:
     cross-feature call into the Hotelling solver, despite both computing an
     exhaustible-resource-style price ramp.
     """
-    loaded = _feature_modules_loaded(_run_example_code("k_ets_hoarding_basic.json"))
+    loaded = _feature_modules_loaded(_run_example_code("minimal_banking_scenario.json"))
     _assert_only(
         loaded,
         present={
