@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Union
 
 if TYPE_CHECKING:
-    from ..protocols import DemandOverlay
+    from ..protocols import AdoptionSpec, DemandOverlay
 
 
 CostSpec = Union[float, Callable[[float], float]]
@@ -126,6 +126,14 @@ class MarketParticipant:
     # no demand-side feedback (product-over-empty-tuple == 1.0, the
     # pre-refactor no-op).
     demand_overlays: tuple[DemandOverlay, ...] = ()
+    # Attached investment-trigger declarations (``core.protocols.AdoptionSpec``)
+    # for the endogenous-investment feedback loop — the ``demand_overlays``
+    # pattern: neutral default ``()`` means the participant is invisible to the
+    # investment feature (no flagged technologies, no code-path change). The
+    # ONLY sanctioned writer is ``features.endogenous_investment.plugin
+    # .attach_adoption_specs`` (arrives with the feature runtime, EI-4/EI-6);
+    # no construction site sets this field directly.
+    adoption_specs: tuple[AdoptionSpec, ...] = ()
 
     # Fields that jointly determine whether the price-elastic baseline
     # channel is active; mutating any of them re-validates the loud guard
