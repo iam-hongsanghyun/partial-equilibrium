@@ -1,0 +1,171 @@
+{
+  "description": {
+    "title": "D1 two-market ONE-WAY linked golden: an upstream carbon price feeds a downstream sector's abatement cost through the mac_cost channel -- the acyclic template the D2 cyclic goldens mirror",
+    "paper": "docs/platform-spec-d0-d1.md §2 (PriceLink semantics: additive-linear x_B(t) = x_B_base(t) + phi*P_A(t), contemporaneous, spec §2a/§2c), §2b (mac_cost channel shifts a targeted technology option's MAC price LEVEL), §3 (recursive-PE DAG, R34 -- no cycles in D1), §7 E4 (source's FINAL delivered path), E8 (horizon strict-subset). Engine: core/backend/engine/dispatch.py solve_multi_market_scenario + engine/links.py; channel: modules/market_links/backend/channels.py MacCostChannel.",
+    "mechanism": "TWO competitive carbon markets solved as a one-way DAG. Market A ('upstream_ets') is the price SOURCE: a standalone cap-and-trade market with a three-tier threshold merit order (coal $20, gas $35, CCS $55 per tCO2e; each 100 tCO2e BAU, 40 tCO2e abatement capacity, zero free allocation). A tightening auction budget (270 -> 240 -> 200 tCO2e) walks the marginal abater up the merit order, so A clears at [20, 35, 55] over 2030-2032. Market B ('downstream_sector') is a downstream electrified sector whose single control option 'electrified_process' (base MAC $40/tCO2e, 60 tCO2e capacity on a 100 tCO2e plant, 70 tCO2e auctioned) has its marginal abatement COST raised by A's carbon price: x_B(t) = 40 + phi*P_A(t). The link is mac_cost with phi = 0.5 (each $1/tCO2e of upstream carbon price passes 0.5 into the downstream electrified process cost -- the power-price/carbon pass-through the electrified route embeds). B is the marginal abater, so B clears exactly at its shifted MAC level. A never sees B (one-way; no back-link -- a cycle would be D2 and the R34 DAG validator would reject it).",
+    "inputs": "years 2030-2032; A: total_cap 300, auction_offered [270, 240, 200]; B: total_cap 100, auction_offered 70; both competitive, static (banking_allowed false), price_unit USD/tCO2e; single link upstream_ets -> downstream_sector, channel mac_cost, phi 0.5, target downstream_plant/electrified_process.",
+    "expected_output": {
+      "upstream_ets price 2030-2032 (SOURCE, unaffected by B)": [20.0, 35.0, 55.0],
+      "downstream_sector price 2030-2032 (WITH link)": [50.0, 57.5, 67.5],
+      "downstream_sector price 2030-2032 (B in ISOLATION, link stripped)": [40.0, 40.0, 40.0],
+      "Link upstream_ets->downstream_sector Price In (= P_A(t))": [20.0, 35.0, 55.0],
+      "Link upstream_ets->downstream_sector mac_cost Input Shift (= phi*P_A(t))": [10.0, 17.5, 27.5],
+      "hand check": "B's shifted MAC intercept = base 40 + phi*P_A(t); B is the marginal abater so the clearing price equals that intercept: 40 + 0.5*[20,35,55] = [50, 57.5, 67.5], matching the WITH-link path. The link bite (WITH minus ISOLATION) is [10, 17.5, 27.5] -- material at every year. A is byte-identical whether or not the link/B is present (recursive-PE: the source solves first with no inbound edge).",
+      "note": "Prices land within ~1e-12 of the stated round numbers (Brent's method lands on the threshold discontinuity where B's abatement flips 0 -> 60 tCO2e); atol 1e-6 in the anchor test. Composite result keys: '<scenario> :: upstream_ets' and '<scenario> :: downstream_sector'."
+    },
+    "run": "uv run python -m pe.cli --config examples/showcase_two_market_link.json"
+  },
+  "scenarios": [
+    {
+      "name": "Two-Market One-Way Link (mac_cost)",
+      "markets": [
+        {
+          "market_id": "upstream_ets",
+          "flow_label": "carbon",
+          "flow_unit": "tCO2e",
+          "price_unit": "USD/tCO2e",
+          "model_approach": "competitive",
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 300.0,
+              "auction_mode": "explicit",
+              "auction_offered": 270.0,
+              "price_lower_bound": 0.0,
+              "price_upper_bound": 300.0,
+              "banking_allowed": false,
+              "borrowing_allowed": false,
+              "participants": [
+                {"name": "coal_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 20.0},
+                {"name": "gas_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 35.0},
+                {"name": "ccs_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 55.0}
+              ]
+            },
+            {
+              "year": "2031",
+              "total_cap": 300.0,
+              "auction_mode": "explicit",
+              "auction_offered": 240.0,
+              "price_lower_bound": 0.0,
+              "price_upper_bound": 300.0,
+              "banking_allowed": false,
+              "borrowing_allowed": false,
+              "participants": [
+                {"name": "coal_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 20.0},
+                {"name": "gas_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 35.0},
+                {"name": "ccs_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 55.0}
+              ]
+            },
+            {
+              "year": "2032",
+              "total_cap": 300.0,
+              "auction_mode": "explicit",
+              "auction_offered": 200.0,
+              "price_lower_bound": 0.0,
+              "price_upper_bound": 300.0,
+              "banking_allowed": false,
+              "borrowing_allowed": false,
+              "participants": [
+                {"name": "coal_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 20.0},
+                {"name": "gas_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 35.0},
+                {"name": "ccs_plant", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 40.0, "threshold_cost": 55.0}
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": "downstream_sector",
+          "flow_label": "carbon",
+          "flow_unit": "tCO2e",
+          "price_unit": "USD/tCO2e",
+          "model_approach": "competitive",
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 100.0,
+              "auction_mode": "explicit",
+              "auction_offered": 70.0,
+              "price_lower_bound": 0.0,
+              "price_upper_bound": 300.0,
+              "banking_allowed": false,
+              "borrowing_allowed": false,
+              "participants": [
+                {
+                  "name": "downstream_plant",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 500.0,
+                  "abatement_type": "threshold",
+                  "max_abatement": 0.0,
+                  "threshold_cost": 0.0,
+                  "technology_options": [
+                    {"name": "electrified_process", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 60.0, "threshold_cost": 40.0, "max_activity_share": 1.0}
+                  ]
+                }
+              ]
+            },
+            {
+              "year": "2031",
+              "total_cap": 100.0,
+              "auction_mode": "explicit",
+              "auction_offered": 70.0,
+              "price_lower_bound": 0.0,
+              "price_upper_bound": 300.0,
+              "banking_allowed": false,
+              "borrowing_allowed": false,
+              "participants": [
+                {
+                  "name": "downstream_plant",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 500.0,
+                  "abatement_type": "threshold",
+                  "max_abatement": 0.0,
+                  "threshold_cost": 0.0,
+                  "technology_options": [
+                    {"name": "electrified_process", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 60.0, "threshold_cost": 40.0, "max_activity_share": 1.0}
+                  ]
+                }
+              ]
+            },
+            {
+              "year": "2032",
+              "total_cap": 100.0,
+              "auction_mode": "explicit",
+              "auction_offered": 70.0,
+              "price_lower_bound": 0.0,
+              "price_upper_bound": 300.0,
+              "banking_allowed": false,
+              "borrowing_allowed": false,
+              "participants": [
+                {
+                  "name": "downstream_plant",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 500.0,
+                  "abatement_type": "threshold",
+                  "max_abatement": 0.0,
+                  "threshold_cost": 0.0,
+                  "technology_options": [
+                    {"name": "electrified_process", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "threshold", "max_abatement": 60.0, "threshold_cost": 40.0, "max_activity_share": 1.0}
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "links": [
+        {
+          "from_market": "upstream_ets",
+          "to_market": "downstream_sector",
+          "channel": "mac_cost",
+          "phi": 0.5,
+          "phi_unit": "USD/tCO2e downstream MAC per USD/tCO2e upstream price",
+          "target_participants": ["downstream_plant"],
+          "target_technologies": ["electrified_process"]
+        }
+      ]
+    }
+  ]
+}

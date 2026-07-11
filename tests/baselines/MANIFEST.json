@@ -1,8 +1,8 @@
 {
- "git_sha": "bd542ddbddf2fe9ce845ec29c1646de31d13f73f",
+ "git_sha": "28993bfef42c1e2a07271016f1babb018a42ff21",
  "git_dirty": true,
  "captured": "2026-07-11",
- "command": "uv run python tests/baselines/_capture.py --only showcase_rps_rec",
+ "command": "uv run python tests/baselines/_capture.py --only showcase_two_market_link",
  "environment": {
   "python": "3.12.10",
   "numpy": "2.5.1",
@@ -524,6 +524,19 @@
     20,
     36
    ]
+  },
+  "showcase_two_market_link": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    6,
+    57
+   ],
+   "participants_shape": [
+    12,
+    36
+   ]
   }
  },
  "audit_log": [
@@ -534,7 +547,8 @@
   "2026-07-10: surgical capture of 5 NEW example scenarios (climate_solutions_elastic_policy, k_ets_hoarding_basic, k_ets_lambda_msr, k_ets_msr_ccr_combined, showcase_full_stack) at d7de7ad (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3; the 31 pre-refactor baselines (dca80a1) were NOT re-captured \u2014 their provenance is unchanged and the replay gate verifies them against the current engine.",
   "2026-07-11: surgical capture of 2 NEW example scenarios (investment_competitive_transition, k_msr_decree_induces_investment) at 46de8a0 (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3; the 37 existing baselines were NOT re-captured - their provenance is unchanged and the replay gate verifies them against the current engine.",
   "2026-07-11: package rename ets->pe (0.2.0): imports-only; entry_point literals retained as historical pins; import ets now intentionally warns, superseding the Order-9 legacy_import_sweep baseline; numeric payloads untouched.",
-  "2026-07-11: capture at bd542dd [only: showcase_rps_rec] (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3"
+  "2026-07-11: capture at bd542dd [only: showcase_rps_rec] (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3",
+  "2026-07-11: capture at 28993bf [only: showcase_two_market_link] (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3"
  ],
  "certification_chain": "Baselines recaptured 2026-07-10 under the pinned uv environment (python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3) from the post-refactor working tree at dca80a1 (dirty). This recapture is sound because equivalence of the refactored tree with the pre-refactor tree was already certified bit-identically under python 3.9.6 / numpy 1.26.4 (golden replay 32/32 IDENTICAL plus full suite green). Same code => same outputs per environment, so these baselines equal what the pre-refactor code would have produced under the pinned environment. The refactor is not being grandfathered - it was already proven. The py3.9.6 baselines are superseded: they deterministically produce ULP-shifted values that amplify through solver regime boundaries (worst observed: 5.6% on one k_msr_P0 Allowance Cost cell).",
  "legacy_import_sweep": {
