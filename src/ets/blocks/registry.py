@@ -91,7 +91,7 @@ class BlockSpec:
         id: Stable block identifier (used as ``Node.block``).
         label: Human-readable palette label.
         category: One of ``market``, ``price_formation``, ``policy``,
-            ``expectations``, ``participants``, ``analysis``.
+            ``feedback``, ``expectations``, ``participants``, ``analysis``.
         doc: One-line description of what the block wraps.
         feature: The feature-module this block belongs to (e.g.
             ``"core"``, ``"banking"``, ``"msr"``, ``"batch_analysis"``) —

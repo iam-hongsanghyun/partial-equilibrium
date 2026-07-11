@@ -84,6 +84,7 @@ def test_catalogue_covers_every_block_in_plan() -> None:
         "forward_transmission",
         "msr_bank_threshold",
         "kmsr_decree",
+        "endogenous_investment",
         "ccr",
         "price_floor",
         "price_ceiling",

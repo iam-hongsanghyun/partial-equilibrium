@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 from ..core.costs import linear_abatement_factory, piecewise_abatement_factory
 from ..core.participant import MarketParticipant, TechnologyOption
 from ..core.market import CarbonMarket
+from ..core.protocols import AdoptionSpec
 from ..features.cbam.plugin import (
     CBAMParticipantReporter,
     CBAMSummaryAggregatesReporter,
@@ -16,6 +17,10 @@ from ..features.cbam.plugin import (
 )
 from ..features.ccr.plugin import CCRSummaryPlaceholderReporter
 from ..features.elastic_baseline.plugin import stamp_and_attach as _elastic_stamp_and_attach
+from ..features.endogenous_investment.plugin import (
+    attach_adoption_specs as _attach_adoption_specs,
+    normalize_investment_trigger as _normalize_investment_trigger,
+)
 from ..features.msr.plugin import MSRSummaryPlaceholderReporter
 from ..features.oba.plugin import OBABenchmarkAllocation
 from ..features.price_controls.plugin import apply_price_bound_trajectories
@@ -270,6 +275,29 @@ def normalize_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
                 f"be in [0, 1], got {transmission_lambda}."
             )
 
+    # Endogenous-investment feedback (docs/invest-feedback-spec.md D6): the
+    # master gate defaults FALSE (off-by-default proof chain); the safety
+    # rail is left ``None`` when absent — the engine's own N_flagged + 1
+    # default (``engine/feedback.py``) is NOT baked in here, per the plan.
+    investment_max_iterations = scenario.get("investment_max_iterations")
+    if investment_max_iterations is not None:
+        investment_max_iterations = int(investment_max_iterations)
+        if investment_max_iterations < 1:
+            raise ValueError(
+                f"Scenario '{scenario['name']}': investment_max_iterations must "
+                f"be a positive integer safety rail, got {investment_max_iterations} "
+                "(leave it unset for the engine's N_flagged + 1 default; spec D6)."
+            )
+
+    invest_credibility = scenario.get("invest_credibility")
+    if invest_credibility is not None:
+        invest_credibility = float(invest_credibility)
+        if not 0.0 <= invest_credibility <= 1.0:
+            raise ValueError(
+                f"Scenario '{scenario['name']}': invest_credibility must be in "
+                f"[0, 1], got {invest_credibility} (spec D2.2)."
+            )
+
     return {
         "name": scenario["name"],
         "model_approach": model_approach,
@@ -286,6 +314,13 @@ def normalize_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
         "banking_supply_rule_tolerance": _fval("banking_supply_rule_tolerance", 0.001),
         "reference_carbon_price": _fval("reference_carbon_price", 0.0),
         "nash_strategic_participants": list(scenario.get("nash_strategic_participants") or []),
+        # Endogenous-investment feedback (docs/invest-feedback-spec.md D6) —
+        # master gate off, safety rail unset (engine default), no pre-committed
+        # adoptions, no scenario-wide credibility override.
+        "investment_feedback_enabled": bool(scenario.get("investment_feedback_enabled", False)),
+        "investment_max_iterations": investment_max_iterations,
+        "investment_initial_adoptions": list(scenario.get("investment_initial_adoptions") or []),
+        "invest_credibility": invest_credibility,
         # MSR
         "msr_enabled": bool(scenario.get("msr_enabled", False)),
         "msr_upper_threshold": _fval("msr_upper_threshold", 200.0),
@@ -385,6 +420,11 @@ def build_markets_from_config(config: dict[str, Any]) -> list[CarbonMarket]:
             "banking_supply_rule_tolerance": scenario.get("banking_supply_rule_tolerance", 0.001),
             "reference_carbon_price": scenario.get("reference_carbon_price", 0.0),
             "nash_strategic_participants": scenario.get("nash_strategic_participants", []),
+            # Endogenous-investment feedback (docs/invest-feedback-spec.md D6)
+            "investment_feedback_enabled": scenario.get("investment_feedback_enabled", False),
+            "investment_max_iterations": scenario.get("investment_max_iterations"),
+            "investment_initial_adoptions": scenario.get("investment_initial_adoptions", []),
+            "invest_credibility": scenario.get("invest_credibility"),
             "free_allocation_trajectories": scenario.get("free_allocation_trajectories", []),
             "cap_trajectory": scenario.get("cap_trajectory", {}),
             "price_floor_trajectory": scenario.get("price_floor_trajectory", {}),
@@ -437,6 +477,114 @@ def build_markets_from_config(config: dict[str, Any]) -> list[CarbonMarket]:
         for year_config in scenario["years"]:
             markets.append(build_market_from_year(scenario["name"], year_config, scenario_meta))
     return markets
+
+
+def _stamp_investment_specs(
+    scenario_name: str,
+    year_label: str,
+    raw_participants: list[dict[str, Any]],
+    participants: list[MarketParticipant],
+    meta: Mapping[str, Any],
+) -> list[MarketParticipant]:
+    """Collect flagged technology options into ``AdoptionSpec``s and attach them.
+
+    The builder-level half of the spec D3.2/D6 loud guards (dispatch.py's
+    ``_investment_configured`` mirrors this belt-and-braces at solve time):
+    a flagged ``investment_trigger`` sub-dict with the scenario's master
+    gate off is a config error, never a silent ignore; the gate on with
+    zero flagged options anywhere in this year is equally an error (the
+    feature would do nothing). When the gate is on, every flagged option's
+    spec is built via the feature's own door (``normalize_investment_trigger``
+    — never re-derived here) and attached through the ONE sanctioned writer
+    (``attach_adoption_specs``, the ``stamp_and_attach`` precedent next to
+    which this call sits in ``build_market_from_year``). The scenario's
+    ``invest_credibility``, when set, OVERRIDES every flagged option's own
+    ``credibility`` default — the field a policy event raises mid-horizon to
+    model an announced decree's credibility (spec D2.2); a spec's
+    ``discount_rate=None`` already inherits the scenario default downstream
+    (``InvestmentRule`` construction, ``core.investment``), so no scenario
+    discount-rate plumbing is needed here.
+
+    Args:
+        scenario_name: Scenario name (error attribution).
+        year_label: This year's label (error attribution).
+        raw_participants: This year's participant dicts AFTER the
+            ``_PARTICIPANT_TRANSFORMS`` pipeline — same order as
+            ``participants``, so ``zip`` pairs them by index.
+        participants: The ``MarketParticipant`` objects built from
+            ``raw_participants`` (mutated in place by ``attach_adoption_specs``
+            and returned, matching the elastic-baseline stamp's own
+            comprehension pattern).
+        meta: Scenario metadata (``investment_feedback_enabled``,
+            ``invest_credibility``).
+
+    Returns:
+        ``participants`` (same list, same order; each stamped in place).
+
+    Raises:
+        ValueError: A flagged option exists while the master gate is off;
+            the master gate is on with no flagged option anywhere in this
+            year; the scenario's ``model_approach`` is outside the v1
+            approach coverage (competitive, banking); or a flagged option
+            fails ``AdoptionSpec`` construction (bound violation, propagated
+            with the offending pair's name).
+    """
+    investment_feedback_enabled = bool(meta.get("investment_feedback_enabled", False))
+    flagged_pairs = sorted(
+        {
+            (str(raw_participant.get("name", "")), str(raw_option.get("name", "")))
+            for raw_participant in raw_participants
+            for raw_option in (raw_participant.get("technology_options") or [])
+            if raw_option.get("investment_trigger")
+        }
+    )
+    if flagged_pairs and not investment_feedback_enabled:
+        raise ValueError(
+            f"Scenario '{scenario_name}' year '{year_label}': technology option(s) "
+            f"{flagged_pairs} carry an investment_trigger block but "
+            "investment_feedback_enabled is false — enable the master gate or "
+            "remove the investment_trigger block(s) (spec D3.2)."
+        )
+    if not investment_feedback_enabled:
+        return participants
+    if not flagged_pairs:
+        raise ValueError(
+            f"Scenario '{scenario_name}' year '{year_label}': "
+            "investment_feedback_enabled is true but no technology option "
+            "carries an investment_trigger block anywhere in this year — flag "
+            "one or more technology options, or disable the feature (spec D6)."
+        )
+    # v1 approach coverage (docs/invest-feedback-plan.md ARBITRATION NOTE;
+    # R33 in blocks/validate.py mirrors this for the graph-authoring door):
+    # the outer loop only wraps the competitive and banking full path
+    # solves (spec D1.3) — engine/dispatch.py's "all" branch already raises
+    # on its own, but hotelling/nash_cournot never wrap the loop at all, so
+    # a scenario that flags an option under either would silently run the
+    # unmasked legacy path unless caught here.
+    approach = str(meta.get("model_approach") or "competitive")
+    if approach not in ("competitive", "banking"):
+        raise ValueError(
+            f"Scenario '{scenario_name}' year '{year_label}': endogenous-investment "
+            "feedback requires model_approach 'competitive' or 'banking' (v1 "
+            f"approach coverage), got '{approach}' (spec D1.3)."
+        )
+
+    credibility_override = meta.get("invest_credibility")
+    stamped: list[MarketParticipant] = []
+    for raw_participant, participant in zip(raw_participants, participants, strict=True):
+        specs = []
+        for raw_option in raw_participant.get("technology_options") or []:
+            trigger_raw = raw_option.get("investment_trigger")
+            if not trigger_raw:
+                continue
+            kwargs = _normalize_investment_trigger(
+                trigger_raw, str(raw_option.get("name", "")), participant.name
+            )
+            if credibility_override is not None:
+                kwargs["credibility"] = float(credibility_override)
+            specs.append(AdoptionSpec(**kwargs))
+        stamped.append(_attach_adoption_specs(participant, tuple(specs)))
+    return stamped
 
 
 def build_market_from_year(
@@ -502,6 +650,14 @@ def build_market_from_year(
             _elastic_stamp_and_attach(participant, reference_carbon_price)
             for participant in participants
         ]
+
+    # Endogenous-investment feedback (docs/invest-feedback-spec.md D3.2/D6):
+    # collect this year's flagged technology options into AdoptionSpecs and
+    # attach them via the feature's sanctioned writer — the loud guards fire
+    # regardless of the master gate (see _stamp_investment_specs docstring).
+    participants = _stamp_investment_specs(
+        scenario_name, str(year_config["year"]), raw_participants, participants, meta
+    )
 
     free_allocations = sum(participant.free_allocation for participant in participants)
     reserved_allowances = float(year_config.get("reserved_allowances", 0.0))
@@ -596,6 +752,14 @@ def build_market_from_year(
     market.risk_premium = float(meta.get("risk_premium") or 0.0)
     _ftl = meta.get("forward_transmission_lambda")
     market.forward_transmission_lambda = None if _ftl is None else float(_ftl)
+    # Attach endogenous-investment feedback settings (docs/invest-feedback-
+    # spec.md D6) — the three fields the dispatch guard/engine host read via
+    # getattr(m0, ...) (engine/dispatch.py:_investment_configured,
+    # engine/feedback.py:solve_with_investment_feedback).
+    market.investment_feedback_enabled = bool(meta.get("investment_feedback_enabled", False))
+    _max_iters = meta.get("investment_max_iterations")
+    market.investment_max_iterations = None if _max_iters is None else int(_max_iters)
+    market.investment_initial_adoptions = list(meta.get("investment_initial_adoptions") or [])
     # Attach banking-equilibrium settings
     market.banking_initial_bank = float(meta.get("banking_initial_bank") or 0.0)
     market.banking_strict_no_arbitrage = bool(

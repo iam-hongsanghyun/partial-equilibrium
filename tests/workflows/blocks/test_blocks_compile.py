@@ -398,3 +398,20 @@ def test_r30_announced_year_outside_horizon() -> None:
     graph.nodes.append(Node("cancel", "cancellation", {"cancelled_allowances": 5.0, "announced": "1999"}))
     graph.edges.append(Edge("cancel", "policy", "market", "policies"))
     assert "R30" in _issue_rules(validate_graph(graph))
+
+
+def test_r33_endogenous_investment_requires_competitive_or_banking() -> None:
+    graph = _minimal_graph()
+    graph.nodes[1] = Node("pf", "hotelling", {})
+    graph.nodes.append(Node("invest", "endogenous_investment", {}))
+    graph.edges.append(Edge("invest", "policy", "market", "policies"))
+    assert "R33" in _issue_rules(validate_graph(graph))
+
+
+def test_r33_allows_competitive_and_banking() -> None:
+    for pf_block in ("competitive_clearing", "rubin_schennach_banking"):
+        graph = _minimal_graph()
+        graph.nodes[1] = Node("pf", pf_block, {})
+        graph.nodes.append(Node("invest", "endogenous_investment", {}))
+        graph.edges.append(Edge("invest", "policy", "market", "policies"))
+        assert "R33" not in _issue_rules(validate_graph(graph))

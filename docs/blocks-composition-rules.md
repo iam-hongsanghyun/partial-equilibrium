@@ -170,3 +170,4 @@ Expectations / timing / diagnostics:
 - **R30 ERROR** — policy event `announced` must be a scenario year (`events.py:92-96`); WARNING when a splice crosses a bank_threshold MSR (`docs/banking-equilibrium.md:117-120`).
 - **R31 WARNING** — CBAM with all reference prices = 0 (`results.py:46-58`); GUI-level: no edge from CBAM into price formation (F6).
 - **R32 WARNING** — OBA fields half-set (`builder.py:417-423`): override never fires.
+- **R33 ERROR** — `endogenous_investment` requires competitive_clearing or rubin_schennach_banking price formation; v1 approach coverage is competitive + banking only (`docs/invest-feedback-spec.md` D1.3; `docs/invest-feedback-plan.md` "v1 approach coverage" — other approaches + the feature raise a loud `ValueError` at normalize).

@@ -1,7 +1,7 @@
 """Rule -> plain-language suggestion table, for the ``check`` tool's ``next_steps``.
 
 Source of truth: ``docs/blocks-composition-rules.md`` §4 (the validator rule
-list, R1-R32, plus the synthetic ``"R-unconnected"`` warning
+list, R1-R33, plus the synthetic ``"R-unconnected"`` warning
 ``ets.blocks.validate`` also emits). Every entry here is deliberately
 generic advice about *what the fix is*, phrased as a question the AI can put
 to the user — the specific numbers/node ids of any one violation are already
@@ -185,6 +185,12 @@ RULE_SUGGESTIONS: dict[str, str] = {
         "benchmark_emission_intensity set — the OBA override needs both "
         "(plus initial_emissions > 0) to fire. Want me to set the missing "
         "one?"
+    ),
+    "R33": (
+        "endogenous_investment only takes effect under competitive_clearing "
+        "or rubin_schennach_banking price formation (v1 approach coverage). "
+        "Want me to switch this market's price formation, or remove the "
+        "endogenous_investment block?"
     ),
     "R-unconnected": (
         "This node isn't wired to anything yet. Want me to connect it (see "

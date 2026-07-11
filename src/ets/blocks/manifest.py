@@ -122,6 +122,22 @@ def _direct_detectors(scenarios: list[dict[str, Any]]) -> set[str]:
     ):
         detected.add("sectors")
 
+    # Endogenous investment (docs/invest-feedback-plan.md D4; spec D6): the
+    # scenario master flag OR any technology option carrying a non-empty
+    # investment_trigger sub-dict. ``technology_option`` nodes are never
+    # synthesised by decompile.py (documented scope reduction — options
+    # round-trip as an opaque list-valued param on the participant node), so
+    # a flagged option with the master gate off (a config the BUILDER
+    # rejects loudly, spec D3.2) would otherwise be invisible to the graph;
+    # this direct detector reports it regardless of graph coverage, same as
+    # the ``oba``/``sectors`` clauses above.
+    if any(scenario.get("investment_feedback_enabled") for scenario in scenarios) or any(
+        option.get("investment_trigger")
+        for participant in _year_participants(scenarios)
+        for option in participant.get("technology_options") or []
+    ):
+        detected.add("endogenous_investment")
+
     return detected
 
 

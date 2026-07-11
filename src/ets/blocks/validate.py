@@ -1,4 +1,4 @@
-"""Structural graph validation — rules R1-R32 (``docs/blocks-composition-rules.md``).
+"""Structural graph validation — rules R1-R33 (``docs/blocks-composition-rules.md``).
 
 Value-level validation (numeric ranges, enum membership, cross-field
 consistency once trajectories are applied, ...) is delegated to
@@ -235,6 +235,7 @@ def _validate_market(graph: Graph, market: Node, issues: list[ValidationIssue]) 
     _rule_r30(market, policy_nodes, year_labels, issues)
     _rule_r31(market, by_block, issues)
     _rule_r32(market, participant_nodes, issues)
+    _rule_r33(market, by_block, pf_block, issues)
 
 
 def _rule_r1(market: Node, pf_edges: list[Edge], issues: list[ValidationIssue]) -> None:
@@ -691,5 +692,23 @@ def _rule_r32(market: Node, participant_nodes: list[Node], issues: list[Validati
                     f"participant '{n.id}': OBA fields half-set (production_output={po}, "
                     f"benchmark_emission_intensity={bei}); the override never fires.",
                     node=n.id,
+                )
+            )
+
+
+def _rule_r33(
+    market: Node, by_block: dict[str, list[Node]], pf_block: str, issues: list[ValidationIssue]
+) -> None:
+    for node in by_block.get("endogenous_investment", []):
+        if pf_block not in ("competitive_clearing", "rubin_schennach_banking"):
+            issues.append(
+                ValidationIssue(
+                    "error", "R33",
+                    f"endogenous_investment '{node.id}' requires competitive_clearing or "
+                    f"rubin_schennach_banking price formation (got '{pf_block}'). v1 approach "
+                    "coverage is competitive + banking only; other approaches raise a loud "
+                    "ValueError at normalize (docs/invest-feedback-spec.md D1.3; "
+                    "docs/invest-feedback-plan.md 'v1 approach coverage').",
+                    node=node.id,
                 )
             )

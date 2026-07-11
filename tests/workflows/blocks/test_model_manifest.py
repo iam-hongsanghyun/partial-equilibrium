@@ -238,6 +238,75 @@ def test_subsector_decomposition_includes_sectors() -> None:
     assert "oba" not in manifest["features"]
 
 
+# ── endogenous_investment direct detector (EI-6, docs/invest-feedback-
+#    plan.md D4; spec D6) — hand-built config dicts, not examples/*.json
+#    (that fixture pool is owned by a concurrent work order).
+
+
+def _one_participant_config(name: str, **scenario_overrides: object) -> dict:
+    scenario: dict = {
+        "name": name,
+        "model_approach": "competitive",
+        "years": [
+            {
+                "year": "2030",
+                "total_cap": 100.0,
+                "auction_mode": "explicit",
+                "auction_offered": 50.0,
+                "participants": [
+                    {
+                        "name": "Steel",
+                        "initial_emissions": 100.0,
+                        "penalty_price": 50.0,
+                        "max_abatement": 20.0,
+                        "cost_slope": 2.0,
+                    }
+                ],
+            }
+        ],
+    }
+    scenario.update(scenario_overrides)
+    return {"scenarios": [scenario]}
+
+
+def test_endogenous_investment_detector_fires_on_flag_alone() -> None:
+    """The scenario master flag alone trips the detector, even with zero
+    flagged technology options — the loud rejection of THAT combination is
+    a config_io.build_markets_from_config concern (spec D6); derive_manifest
+    only compiles/decompiles, it never calls build_market_from_year."""
+    config = _one_participant_config("flag-only", investment_feedback_enabled=True)
+    manifest = derive_manifest(config)
+    assert "endogenous_investment" in manifest["features"]
+
+
+def test_endogenous_investment_detector_fires_on_flagged_option_alone() -> None:
+    """A flagged ``investment_trigger`` sub-dict with the master gate OFF
+    still trips the detector — technology_option nodes are never
+    synthesised by decompile.py (options are opaque to the compiled graph,
+    manifest.py's own docstring), so this is the documented detector home;
+    the loud config-time rejection of this exact combination is a
+    config_io.build_markets_from_config concern, orthogonal to the manifest."""
+    config = _one_participant_config("option-only")
+    config["scenarios"][0]["years"][0]["participants"][0]["technology_options"] = [
+        {
+            "name": "H2-DRI",
+            "initial_emissions": 40.0,
+            "max_abatement": 40.0,
+            "cost_slope": 2.0,
+            "max_activity_share": 0.5,
+            "investment_trigger": {"break_even_price": 80.0, "payout_yield": 0.03},
+        }
+    ]
+    manifest = derive_manifest(config)
+    assert "endogenous_investment" in manifest["features"]
+
+
+def test_endogenous_investment_detector_absent_when_neither_condition_holds() -> None:
+    config = _one_participant_config("neither")
+    manifest = derive_manifest(config)
+    assert "endogenous_investment" not in manifest["features"]
+
+
 # ── (c) vocabulary test ──────────────────────────────────────────────
 
 # Frozen literal vocabulary for BlockSpec.feature, per the catalogue-mapping
@@ -264,6 +333,7 @@ FEATURE_VOCABULARY = frozenset(
         "hoarding",
         "elastic_baseline",
         "sectors",
+        "endogenous_investment",
         # analysis/workflow ids
         "batch_analysis",
         "calibration",

@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from ..core.expectations import ALLOWED_EXPECTATION_RULES, validate_expectation_rule
+from ..features.endogenous_investment.plugin import (
+    normalize_investment_trigger as _normalize_investment_trigger,
+)
 
 ALLOWED_AUCTION_MODES = {"explicit", "derive_from_cap"}
 
@@ -354,5 +357,27 @@ def normalize_technology_option(
         raise ValueError(
             f"Participant '{participant_name}' technology '{option['name']}' piecewise abatement requires mac_blocks."
         )
+
+    # Endogenous-investment trigger (docs/invest-feedback-spec.md D6): presence
+    # of a non-empty ``investment_trigger`` sub-dict IS the flag. Content
+    # validation is delegated to the feature's config door — the config_io ->
+    # plugin door is legal (docs/feature-modules-plan.md PLAN v2 "Two-door
+    # features") — so a malformed trigger (missing payout_yield, both/neither
+    # break_even form, an out-of-bound credibility, ...) raises HERE, at
+    # normalize time, naming this participant/technology (spec D6). The
+    # ORIGINAL wire-format dict round-trips unchanged (never the AdoptionSpec
+    # kwargs shape) so compile.py/decompile.py can pass it through opaquely;
+    # the key is always present (default {}) so the catalogue's
+    # config_key-existence drift guard (tests/workflows/blocks/
+    # test_blocks_catalogue.py) can assert against it regardless of whether
+    # any one option actually flags itself — the *template*
+    # (``templates.blank_technology_option``) deliberately does NOT carry
+    # this key (config-driven display principle: blank stays blank).
+    raw_trigger = option.get("investment_trigger")
+    if raw_trigger:
+        _normalize_investment_trigger(raw_trigger, option["name"], participant_name)
+        option["investment_trigger"] = dict(raw_trigger)
+    else:
+        option["investment_trigger"] = {}
 
     return option

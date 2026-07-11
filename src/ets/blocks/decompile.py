@@ -149,6 +149,7 @@ def _decompile_scenario(
 
     _decompile_msr(scenario, market_id, nodes, edges)
     _decompile_ccr(scenario, market_id, nodes, edges)
+    _decompile_endogenous_investment(scenario, market_id, nodes, edges)
     _decompile_year_policy(scenario, years, market_id, nodes, edges)
     _decompile_scenario_policy(scenario, market_id, nodes, edges)
     _decompile_expectations(scenario, years, market_id, nodes, edges)
@@ -266,6 +267,32 @@ def _decompile_ccr(scenario: dict[str, Any], market_id: str, nodes: list[Node], 
         if not _equals_default(value, param.default):
             params[key] = value
     nodes.append(Node(node_id, "ccr", params))
+    edges.append(Edge(node_id, "policy", market_id, "policies"))
+
+
+def _decompile_endogenous_investment(
+    scenario: dict[str, Any], market_id: str, nodes: list[Node], edges: list[Edge]
+) -> None:
+    """Synthesize the ``endogenous_investment`` node (sibling of ``_decompile_ccr``).
+
+    ``investment_feedback_enabled`` itself is never restated in the node's
+    params — its ``ParamSpec`` default is ``True`` (the msr_enabled/
+    ccr_enabled sibling trick, ``catalogue.py``), so the node's mere
+    presence, wired into the market's ``policies`` port, already compiles
+    it back to ``True`` (spec D6).
+    """
+    if not scenario.get("investment_feedback_enabled"):
+        return
+    node_id = f"{market_id}_investment"
+    spec = BLOCK_CATALOGUE.get("endogenous_investment")
+    params: dict[str, Any] = {}
+    for key in ("investment_max_iterations", "investment_initial_adoptions", "invest_credibility"):
+        param = spec.param(key)
+        assert param is not None
+        value = scenario.get(key, param.default)
+        if not _equals_default(value, param.default):
+            params[key] = value
+    nodes.append(Node(node_id, "endogenous_investment", params))
     edges.append(Edge(node_id, "policy", market_id, "policies"))
 
 

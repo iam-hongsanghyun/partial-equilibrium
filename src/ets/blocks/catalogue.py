@@ -448,6 +448,44 @@ def _policy_blocks() -> tuple[BlockSpec, ...]:
     )
 
 
+def _feedback_blocks() -> tuple[BlockSpec, ...]:
+    # New category (docs/invest-feedback-plan.md D4): the outer adoption loop
+    # is not a policy mechanism inside one solve — it wraps the whole path
+    # solve — but it reuses the "policy" port KIND (not category) into
+    # carbon_market.policies, the same in-port every policy block above
+    # already targets (see the sibling ``ccr``/``msr_bank_threshold`` blocks).
+    endogenous_investment = BlockSpec(
+        id="endogenous_investment",
+        label="Endogenous Investment Feedback",
+        category="feedback",
+        doc="engine/feedback.py:solve_with_investment_feedback, features/endogenous_investment/",
+        feature="endogenous_investment",
+        params=(
+            # default=True mirrors msr_enabled/ccr_enabled above (the
+            # decompile.py sibling-pattern trick, catalogue.py-local only —
+            # config_io's OWN default is False, `blank_scenario`/
+            # `normalize_scenario`; a freshly-dragged block or a
+            # decompiled node's mere PRESENCE already implies "on" without
+            # restating the flag).
+            ParamSpec("investment_feedback_enabled", "investment_feedback_enabled", "scenario", "bool", True),
+            ParamSpec(
+                "investment_max_iterations", "investment_max_iterations", "scenario", "int", None,
+                label="Safety-rail outer-iteration cap (default: N_flagged + 1)",
+            ),
+            ParamSpec(
+                "investment_initial_adoptions", "investment_initial_adoptions", "scenario", "list",
+                default=(), label="Pre-committed adoptions [{participant, technology, adoption_year}]",
+            ),
+            ParamSpec(
+                "invest_credibility", "invest_credibility", "scenario", "float", None,
+                bounds=(0.0, 1.0), label="Scenario-wide credibility override q",
+            ),
+        ),
+        ports=(_POLICY_OUT_PORT,),
+    )
+    return (endogenous_investment,)
+
+
 def _expectations_blocks() -> tuple[BlockSpec, ...]:
     expectations = BlockSpec(
         id="expectations",
@@ -532,6 +570,11 @@ def _participant_blocks() -> tuple[BlockSpec, ...]:
             ParamSpec("mac_blocks", "mac_blocks", "participant", "list", default=()),
             ParamSpec("fixed_cost", "fixed_cost", "participant", "float", 0.0),
             ParamSpec("max_activity_share", "max_activity_share", "participant", "float", 1.0, bounds=(0.0, 1.0)),
+            ParamSpec(
+                "investment_trigger", "investment_trigger", "participant", "dict", default={},
+                label="Investment trigger (Dixit-Pindyck adoption rule; a "
+                "non-empty sub-dict IS the flag, docs/invest-feedback-spec.md D6)",
+            ),
         ),
         ports=(PortSpec("option", "out", "technology_option"),),
     )
@@ -632,6 +675,7 @@ def _build_catalogue() -> BlockRegistry:
         _market_block(),
         *_price_formation_blocks(),
         *_policy_blocks(),
+        *_feedback_blocks(),
         *_expectations_blocks(),
         *_participant_blocks(),
         *_analysis_blocks(),
