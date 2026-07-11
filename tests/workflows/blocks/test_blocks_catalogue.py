@@ -34,7 +34,14 @@ from pe.config_io import (
     normalize_year,
 )
 
-SCENARIO_KEYS = set(normalize_scenario(blank_scenario()))
+# D1 vocabulary keys (docs/platform-spec-d0-d1.md §5/§6: "default absent" —
+# an absent key means today's carbon labels, never an injected default
+# value, so `normalize_scenario(blank_scenario())` alone never carries them.
+# Union in a scenario that actually SETS price_unit so the drift guard stays
+# meaningful for it too (catalogue.py's carbon_market.price_unit ParamSpec).
+SCENARIO_KEYS = set(normalize_scenario(blank_scenario())) | set(
+    normalize_scenario({**blank_scenario(), "price_unit": "USD/tCO2e"})
+)
 YEAR_KEYS = set(normalize_year(blank_year_config()))
 PARTICIPANT_KEYS = set(normalize_participant(blank_participant())) | set(
     normalize_technology_option(blank_technology_option(), "probe")
@@ -77,6 +84,7 @@ def test_param_config_key_exists_in_normalised_document(block_id: str, param_nam
 def test_catalogue_covers_every_block_in_plan() -> None:
     expected_ids = {
         "carbon_market",
+        "market_link",
         "competitive_clearing",
         "rubin_schennach_banking",
         "hotelling",

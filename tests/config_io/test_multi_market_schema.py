@@ -1,4 +1,4 @@
-"""D1-1 gate: multi-market schema layer (docs/platform-plan-d0-d1.md D1-1).
+"""D1-1/D1-4 gate: multi-market schema layer (docs/platform-plan-d0-d1.md D1).
 
 Covers ``docs/platform-spec-d0-d1.md`` §2 (PriceLink semantics), §6
 (parameters, all defaults inert) and the plan's D1 COMPAT RULE:
@@ -16,9 +16,11 @@ Covers ``docs/platform-spec-d0-d1.md`` §2 (PriceLink semantics), §6
   implicit-"all" target rejection, the mac_cost/cost_slope dimensional
   exclusion (spec §2b), and the price_unit-touching requirement (spec
   §2e/§6).
-* (d) A ``markets``-shaped scenario hits the D1-1 interim safety rail (a
-  loud ``ValueError``, never a silent ``_scenario_extra`` passthrough) on
-  every legacy entry point, including the blocks decompile path.
+* (d) D1-4: the D1-1 interim safety rail is RETIRED — ``markets``-shaped
+  scenarios normalize successfully on every entry point, including the
+  blocks decompile path (``docs/platform-plan-d0-d1.md`` D1 "GRAPH
+  DISENTANGLEMENT"; graph-side coverage lives in
+  ``tests/workflows/blocks/test_market_links_graph.py``).
 """
 
 from __future__ import annotations
@@ -278,41 +280,48 @@ def test_valid_two_market_link_normalizes_cleanly() -> None:
     assert [market_id for market_id, _ in result] == ["hydrogen", "steel"]
 
 
-# ── (d) interim safety rail: a 'markets' key is never silently swallowed ────
+# ── (d) D1-4: the interim safety rail is retired — markets are wired ───────
+# (docs/platform-plan-d0-d1.md D1 "GRAPH DISENTANGLEMENT"). A `markets`-shaped
+# scenario now normalizes successfully everywhere `normalize_scenario` is
+# reachable, instead of raising the D1-1 interim guard.
 
 
-def test_normalize_scenario_rejects_markets_key() -> None:
+def test_normalize_scenario_normalizes_markets_key() -> None:
     scenario = _two_market_scenario()
-    with pytest.raises(ValueError, match="markets"):
-        normalize_scenario(scenario)
+    normalized = normalize_scenario(scenario)
+    assert set(normalized) == {"name", "markets", "links"}
+    assert [m["market_id"] for m in normalized["markets"]] == ["hydrogen", "steel"]
+    assert len(normalized["links"]) == 1
+    assert normalized["links"][0]["from_market"] == "hydrogen"
 
 
-def test_normalize_config_rejects_markets_key() -> None:
+def test_normalize_config_normalizes_markets_key() -> None:
     config = {"scenarios": [_two_market_scenario()]}
-    with pytest.raises(ValueError, match="markets"):
-        normalize_config(config)
+    normalized = normalize_config(config)
+    assert "markets" in normalized["scenarios"][0]
 
 
-def test_decompile_path_rejects_markets_key() -> None:
-    """blocks.decompile.graph_from_config normalizes first — the interim
-    guard fires before any graph is ever built, never falling through to
-    the opaque `_scenario_extra` passthrough."""
+def test_decompile_path_handles_markets_key() -> None:
+    """blocks.decompile.graph_from_config normalizes first — a markets-shaped
+    scenario now decompiles into carbon_market + market_link nodes rather
+    than raising the retired D1-1 guard."""
     config = {"scenarios": [_two_market_scenario()]}
-    with pytest.raises(ValueError, match="markets"):
-        graph_from_config(config)
+    graph = graph_from_config(config)
+    market_ids = {n.params.get("name") for n in graph.nodes if n.block == "carbon_market"}
+    assert market_ids == {"hydrogen", "steel"}
+    assert any(n.block == "market_link" for n in graph.nodes)
 
 
-def test_markets_key_guard_message_names_the_escape_hatch() -> None:
-    """The guard must be actionable, not just loud: it names
-    iter_market_bodies as the sanctioned reader."""
-    scenario = _two_market_scenario()
-    with pytest.raises(ValueError, match="iter_market_bodies"):
-        normalize_scenario(scenario)
-
-
-def test_markets_key_guard_does_not_mutate_input() -> None:
+def test_normalize_scenario_markets_key_does_not_mutate_input() -> None:
     scenario = _two_market_scenario()
     before = copy.deepcopy(scenario)
-    with pytest.raises(ValueError):
-        normalize_scenario(scenario)
+    normalize_scenario(scenario)
     assert scenario == before
+
+
+def test_normalize_scenario_markets_key_still_raises_on_invalid_links() -> None:
+    """The retired guard's REMOVAL doesn't relax link validation — an invalid
+    link on a markets-shaped scenario still raises (via validate_links)."""
+    scenario = _two_market_scenario(omit_link_keys=("channel",))
+    with pytest.raises(ValueError, match="channel"):
+        normalize_scenario(scenario)

@@ -1,4 +1,5 @@
-"""Structural graph validation — rules R1-R33 (``docs/blocks-composition-rules.md``).
+"""Structural graph validation — rules R1-R36 (``docs/blocks-composition-rules.md``
+R1-R33; ``docs/platform-spec-d0-d1.md`` §3/§7 R34-R36).
 
 Value-level validation (numeric ranges, enum membership, cross-field
 consistency once trajectories are applied, ...) is delegated to
@@ -17,6 +18,18 @@ MSR one instead of composing them additively). F1 has landed
 see ``solvers/simulation.py`` and ``tests/test_msr_ccr_composition.py``), so
 R10 is now ALLOWED — this module intentionally emits nothing for it. Do not
 resurrect it as an error without re-breaking F1 first.
+
+R34-R36 (D1-4, ``docs/platform-plan-d0-d1.md`` D1 "GRAPH DISENTANGLEMENT";
+binding spec ``docs/platform-spec-d0-d1.md`` §3 rule texts, §7 E8) are
+GRAPH-GLOBAL, not per-market: a ``market_link`` edge crosses two
+``carbon_market`` nodes, so they run once per graph (:func:`_check_market_links`),
+mirroring ``_check_policy_policy_edges``/``_check_unconnected_nodes`` rather
+than the per-market ``_rule_r*`` family below. They are DELIBERATELY
+redundant with engine/config-tier enforcement (``engine/links.py``'s
+``topological_market_order`` for R34's cycle check; ``modules/market_links/
+backend/plugin.py``'s ``validate_links`` for R35's channel whitelist and
+R36's price_unit check) — the same "check early, structurally, before
+compile" doctrine every other R-rule here already follows.
 
 Dependency law: this module imports only ``ets.blocks`` siblings and stdlib.
 """
@@ -92,6 +105,7 @@ def validate_graph(graph: Graph) -> list[ValidationIssue]:
     _check_unknown_blocks(graph, issues)
     _check_dangling_and_port_kinds(graph, issues, node_ids)
     _check_policy_policy_edges(graph, issues)
+    _check_market_links(graph, issues)
 
     for market_node in graph.nodes:
         if market_node.block != "carbon_market":
@@ -176,6 +190,211 @@ def _check_unconnected_nodes(graph: Graph, issues: list[ValidationIssue]) -> Non
             issues.append(
                 ValidationIssue("warning", "R-unconnected", f"Node '{node.id}' is not connected to anything.", node=node.id)
             )
+
+
+# ── market links: R34 (DAG), R35 (channel whitelist + duplicates),
+#    R36 (unit declarations) — docs/platform-spec-d0-d1.md §3, §7 ─────────
+
+# Mirrors modules/market_links/backend/plugin.py:ALLOWED_LINK_CHANNELS and
+# catalogue.py's own _LINK_CHANNELS — duplicated here only as strings, per
+# this module's dependency law (stdlib + blocks siblings only).
+_LINK_CHANNELS = frozenset({"mac_cost", "invest_break_even"})
+
+
+def _market_link_nodes(graph: Graph) -> list[Node]:
+    return [n for n in graph.nodes if n.block == "market_link"]
+
+
+def _resolve_link_endpoint_markets(graph: Graph, link_node: Node) -> tuple[str, str] | None:
+    """Resolve one ``market_link`` node's ``(from_market_node_id, to_market_node_id)``.
+
+    Never raises (``validate_graph``'s contract): returns ``None`` when the
+    node's cardinality is wrong (not exactly one inbound ``from`` edge and
+    one outbound ``link`` edge) — :func:`_rule_r34_link_dag` reports that
+    case itself; every other caller treats ``None`` as "already reported,
+    skip" (one issue per malformed node, not one per rule).
+
+    Args:
+        graph: The drawn block graph.
+        link_node: A ``market_link`` node.
+
+    Returns:
+        ``(from_node_id, to_node_id)``, or ``None`` if malformed.
+    """
+    from_edges = graph.edges_into(link_node.id, "from")
+    link_edges = [e for e in graph.edges if e.source == link_node.id and e.source_port == "link"]
+    if len(from_edges) != 1 or len(link_edges) != 1:
+        return None
+    return from_edges[0].source, link_edges[0].target
+
+
+def _rule_r34_link_dag(graph: Graph, link_nodes: list[Node], issues: list[ValidationIssue]) -> None:
+    r"""R34: the link graph must be a DAG (self-links and cycles rejected).
+
+    Graph-tier cycle detection, redundant by design with the engine's own
+    enforcement (``engine/links.py:topological_market_order``, which owns
+    the full Kahn's-algorithm ordering docstring — LaTeX/ASCII/symbols —
+    this function mirrors only the DETECTION half, since ``validate_graph``
+    reports issues rather than computing a solve order):
+
+    Algorithm:
+        LaTeX:
+        $$ \text{in-deg}(v) = \big|\{(u,v) : u \to v \in E\}\big|, \qquad
+           R_0 = \{v : \text{in-deg}(v) = 0\} $$
+        $$ |{\textstyle\bigcup} \text{visited}| \neq |V|
+           \;\Longrightarrow\; \text{a cycle remains among the unvisited} $$
+
+        ASCII fallback:
+            E = { (from, to) } deduped per market_link edge
+            in_deg[v] = number of distinct edges into v
+            ready = { v : in_deg[v] == 0 }
+            while ready: pop v; emit v; in_deg[w] -= 1 for each edge (v, w);
+                         w joins ready when in_deg[w] hits 0
+            visited != |V|  =>  a cycle remains among the unvisited markets
+
+        Symbols:
+            V : the carbon_market node ids [-]
+            E : market_link (from, to) edges, deduped per pair [-]
+
+    Args:
+        graph: The drawn block graph.
+        link_nodes: Every ``market_link`` node.
+        issues: Accumulating issue list (mutated in place).
+    """
+    market_ids = {n.id for n in graph.nodes if n.block == "carbon_market"}
+    edges: list[tuple[str, str]] = []
+    for link_node in link_nodes:
+        endpoints = _resolve_link_endpoint_markets(graph, link_node)
+        if endpoints is None:
+            issues.append(
+                ValidationIssue(
+                    "error", "R34",
+                    f"market_link '{link_node.id}' must have exactly one inbound 'from' "
+                    "edge (from a carbon_market's 'signal' port) and exactly one outbound "
+                    "'link' edge (into a carbon_market's 'links' port).",
+                    node=link_node.id,
+                )
+            )
+            continue
+        source_id, target_id = endpoints
+        if source_id not in market_ids or target_id not in market_ids:
+            continue  # port-kind mismatch / dangling — R3 already attributes it
+        if source_id == target_id:
+            issues.append(
+                ValidationIssue(
+                    "error", "R34",
+                    f"market_link '{link_node.id}': 'from' and 'link' both resolve to "
+                    f"market '{source_id}' — self-links are forbidden.",
+                    node=link_node.id,
+                )
+            )
+            continue
+        edges.append((source_id, target_id))
+
+    successors: dict[str, set[str]] = {m: set() for m in market_ids}
+    for source_id, target_id in edges:
+        successors[source_id].add(target_id)
+    in_degree: dict[str, int] = {m: 0 for m in market_ids}
+    for targets in successors.values():
+        for target_id in targets:
+            in_degree[target_id] += 1
+
+    ready = [m for m in sorted(market_ids) if in_degree[m] == 0]
+    visited = 0
+    while ready:
+        node_id = ready.pop()
+        visited += 1
+        for target_id in sorted(successors[node_id]):
+            in_degree[target_id] -= 1
+            if in_degree[target_id] == 0:
+                ready.append(target_id)
+    if visited != len(market_ids):
+        cyclic = sorted(m for m in market_ids if in_degree[m] > 0)
+        issues.append(
+            ValidationIssue(
+                "error", "R34",
+                f"Market link graph has a cycle among {cyclic} — D1 solves DAGs only "
+                "(cyclic links are the joint fixed point, D2).",
+            )
+        )
+
+
+def _rule_r35_link_whitelist(graph: Graph, link_nodes: list[Node], issues: list[ValidationIssue]) -> None:
+    """R35: demand-side channel whitelist only; duplicate (source, target, channel) rejected."""
+    seen: dict[tuple[str, str, str], str] = {}
+    for link_node in link_nodes:
+        channel = link_node.params.get("channel")
+        if channel not in _LINK_CHANNELS:
+            issues.append(
+                ValidationIssue(
+                    "error", "R35",
+                    f"market_link '{link_node.id}': channel must be one of "
+                    f"{sorted(_LINK_CHANNELS)} (demand-side only — a price-indexed supply "
+                    "instrument is a SupplyRule inside its own market's fixed point, never "
+                    f"a link), got {channel!r}.",
+                    node=link_node.id,
+                )
+            )
+            continue
+        endpoints = _resolve_link_endpoint_markets(graph, link_node)
+        if endpoints is None:
+            continue  # R34 already reported the malformed cardinality
+        key = (endpoints[0], endpoints[1], channel)
+        if key in seen:
+            issues.append(
+                ValidationIssue(
+                    "error", "R35",
+                    f"market_link '{link_node.id}' duplicates market_link '{seen[key]}': "
+                    f"both link '{endpoints[0]}' -> '{endpoints[1]}' on channel {channel!r} "
+                    "— duplicate (source, target, channel) is rejected (distinct SOURCES "
+                    "into one target are fine and sum order-invariantly).",
+                    node=link_node.id,
+                )
+            )
+        else:
+            seen[key] = link_node.id
+
+
+def _rule_r36_link_units(graph: Graph, link_nodes: list[Node], issues: list[ValidationIssue]) -> None:
+    """R36: every linked market declares price_unit; every link declares phi_unit."""
+    market_by_id = {n.id: n for n in graph.nodes if n.block == "carbon_market"}
+    touched: set[str] = set()
+    for link_node in link_nodes:
+        if not link_node.params.get("phi_unit"):
+            issues.append(
+                ValidationIssue(
+                    "error", "R36",
+                    f"market_link '{link_node.id}': phi_unit is required — a silent "
+                    "dimensionless fallback is an economic constant hiding in a default "
+                    "(spec §2e).",
+                    node=link_node.id,
+                )
+            )
+        endpoints = _resolve_link_endpoint_markets(graph, link_node)
+        if endpoints is None:
+            continue  # R34 already reported the malformed cardinality
+        touched.update(m for m in endpoints if m in market_by_id)
+    for market_id in sorted(touched):
+        market_node = market_by_id[market_id]
+        if not market_node.params.get("price_unit"):
+            issues.append(
+                ValidationIssue(
+                    "error", "R36",
+                    f"Market '{market_id}' participates in a link but declares no "
+                    "price_unit — every linked market must declare price_unit "
+                    "(spec §2e/§6).",
+                    node=market_id,
+                )
+            )
+
+
+def _check_market_links(graph: Graph, issues: list[ValidationIssue]) -> None:
+    link_nodes = _market_link_nodes(graph)
+    if not link_nodes:
+        return
+    _rule_r34_link_dag(graph, link_nodes, issues)
+    _rule_r35_link_whitelist(graph, link_nodes, issues)
+    _rule_r36_link_units(graph, link_nodes, issues)
 
 
 # ── per-market checks ────────────────────────────────────────────────────

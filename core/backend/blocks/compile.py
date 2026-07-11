@@ -3,7 +3,9 @@
 Implements the compile step of ``docs/blocks-graph-plan.md`` §2:
 
 1. Each ``carbon_market`` node becomes one entry in ``{"scenarios": [...]}``,
-   sorted by ``params["order"]`` then node id.
+   sorted by ``params["order"]`` then node id — see the GRAPH
+   DISENTANGLEMENT note below for what "one entry" means once ``market_link``
+   edges are drawn.
 2. The market's ``price_formation`` edge (cardinality exactly 1) merges its
    scenario-level keys.
 3. Each attached policy/expectations block merges its keys.
@@ -34,6 +36,22 @@ plan §2 step 3's generative direction and is deferred. ``policy_events`` is
 instead round-tripped verbatim as an opaque pass-through param on the
 ``carbon_market`` node (see ``decompile.py``), which is sufficient for every
 current example.
+
+GRAPH DISENTANGLEMENT (D1-4, ``docs/platform-plan-d0-d1.md`` D1 "GRAPH
+DISENTANGLEMENT"; binding spec ``docs/platform-spec-d0-d1.md`` §3): a
+scenario is a CONNECTED COMPONENT of ``carbon_market`` nodes under
+``market_link`` edges (:func:`_connected_components`), computed on the
+UNDIRECTED graph the link edges induce. A component of size ONE — a
+linkless market — is today's semantics EXACTLY: :func:`_compile_market`
+runs VERBATIM, unchanged since before D1-4 (every existing example graph
+compiles bit-identically; no migration). A component of size >1 compiles
+via :func:`_compile_linked_scenario` into one scenario dict shaped
+``{"name": ..., "markets": [...], "links": [...]}`` — a market node's OWN
+``name`` param becomes its ``market_id`` inside the component (the same
+param that means "scenario name" for a size-1 component); the wrapping
+scenario's display name comes from the optional ``scenario_name`` param
+(must agree across the component when set on more than one node; defaults
+to the order-first market's own ``name``).
 
 Dependency law: this module imports only ``ets.blocks`` siblings,
 ``ets.config_io``, and stdlib.
@@ -177,6 +195,13 @@ class _FieldOwners:
 def compile_graph(graph: Graph) -> dict[str, Any]:
     """Compile a :class:`Graph` into a normalised scenario-config dict.
 
+    GRAPH DISENTANGLEMENT (module docstring): ``carbon_market`` nodes are
+    grouped into connected components under ``market_link`` edges
+    (:func:`_connected_components`); each component compiles to ONE
+    ``{"scenarios": [...]}`` entry — :func:`_compile_market` (VERBATIM,
+    byte-identical to pre-D1-4) for a size-one component,
+    :func:`_compile_linked_scenario` for a component of size >1.
+
     Args:
         graph: The drawn block graph.
 
@@ -187,18 +212,144 @@ def compile_graph(graph: Graph) -> dict[str, Any]:
     Raises:
         CompileError: On structural problems the compiler cannot route
             around (dangling edges, wrong price-formation cardinality, a
-            key written by two different blocks, an unknown block id).
+            key written by two different blocks, an unknown block id, a
+            malformed/dangling ``market_link``, a disagreeing
+            ``scenario_name``, or a ``"::"`` in a linked market id/scenario
+            name — the engine's composite-key separator).
         ValueError: Propagated from ``config_io`` value validation.
     """
     market_nodes = [n for n in graph.nodes if n.block == "carbon_market"]
     if not market_nodes:
         raise CompileError("Graph has no 'carbon_market' node.")
     market_nodes.sort(key=_order_key)
-    scenarios = [_compile_market(graph, market_node) for market_node in market_nodes]
+    components = _connected_components(graph, market_nodes)
+    scenarios = [
+        _compile_market(graph, component[0])
+        if len(component) == 1
+        else _compile_linked_scenario(graph, component)
+        for component in components
+    ]
     return normalize_config({"scenarios": scenarios})
 
 
-def _compile_market(graph: Graph, market_node: Node) -> dict[str, Any]:
+def _link_endpoints(graph: Graph, link_node: Node) -> tuple[str, str]:
+    """Resolve a ``market_link`` node's ``(from_node_id, to_node_id)``.
+
+    Args:
+        graph: The drawn block graph.
+        link_node: A ``market_link`` node.
+
+    Returns:
+        The node id feeding the link's ``from`` port (source market) and the
+        node id its ``link`` port feeds into (target market).
+
+    Raises:
+        CompileError: The node does not have exactly one inbound ``from``
+            edge and exactly one outbound ``link`` edge, or either resolved
+            id is not a real node (dangling).
+    """
+    from_edges = graph.edges_into(link_node.id, "from")
+    link_edges = [e for e in graph.edges if e.source == link_node.id and e.source_port == "link"]
+    if len(from_edges) != 1 or len(link_edges) != 1:
+        raise CompileError(
+            f"market_link '{link_node.id}' must have exactly one inbound 'from' edge "
+            f"and exactly one outbound 'link' edge (found {len(from_edges)} in, "
+            f"{len(link_edges)} out)."
+        )
+    source = _require_node(graph, from_edges[0].source, f"market_link '{link_node.id}' from edge")
+    target = _require_node(graph, link_edges[0].target, f"market_link '{link_node.id}' link edge")
+    return source.id, target.id
+
+
+def _connected_components(graph: Graph, market_nodes: list[Node]) -> list[list[Node]]:
+    """Group ``carbon_market`` nodes into connected components under link edges.
+
+    Undirected: a ``market_link`` edge A -> B puts A and B in the SAME
+    component regardless of the link's direction (spec §3's "a scenario is
+    a connected component of carbon_market nodes under link edges") — only
+    :func:`topological_market_order` (the engine, D1-3) cares about
+    directionality. A market_link node whose endpoints are not both
+    ``carbon_market`` nodes in ``market_nodes`` is skipped here (a
+    port-kind mismatch or dangling edge the generic structural checks
+    already attribute; :func:`_link_endpoints` still raises for a malformed
+    ``market_link`` node itself).
+
+    Args:
+        graph: The drawn block graph.
+        market_nodes: Every ``carbon_market`` node, in declared
+            (``_order_key``) order.
+
+    Returns:
+        One list of nodes per component, each internally sorted by
+        ``_order_key``, and the list of components itself ordered by its
+        first (minimum ``_order_key``) node — deterministic, declaration-
+        order-derived (spec §3's "deterministic order via node order").
+    """
+    market_ids = {n.id for n in market_nodes}
+    adjacency: dict[str, set[str]] = {n.id: set() for n in market_nodes}
+    for node in graph.nodes:
+        if node.block != "market_link":
+            continue
+        source_id, target_id = _link_endpoints(graph, node)
+        if source_id not in market_ids or target_id not in market_ids:
+            continue
+        adjacency[source_id].add(target_id)
+        adjacency[target_id].add(source_id)
+
+    by_id = {n.id: n for n in market_nodes}
+    seen: set[str] = set()
+    components: list[list[Node]] = []
+    for node in market_nodes:
+        if node.id in seen:
+            continue
+        seen.add(node.id)
+        stack = [node.id]
+        component_ids: list[str] = []
+        while stack:
+            current = stack.pop()
+            component_ids.append(current)
+            for neighbour in adjacency[current]:
+                if neighbour not in seen:
+                    seen.add(neighbour)
+                    stack.append(neighbour)
+        components.append(sorted((by_id[cid] for cid in component_ids), key=_order_key))
+    components.sort(key=lambda component: _order_key(component[0]))
+    return components
+
+
+def _compile_market_fields(
+    graph: Graph,
+    market_node: Node,
+    *,
+    identity_key: str,
+    identity_value: Any,
+    allow_policy_events: bool,
+) -> dict[str, Any]:
+    """Assemble one market body's fields — shared by both compile paths.
+
+    Args:
+        graph: The drawn block graph.
+        market_node: The ``carbon_market`` node being compiled.
+        identity_key: ``"name"`` (single-market: the scenario's own name) or
+            ``"market_id"`` (multi-market: this market's id within its
+            linked component) — the ONE field that differs in meaning
+            between the two callers; everything else about a market body is
+            identical (D1 COMPAT RULE: "a market body = today's scenario
+            body minus name/policy_events").
+        identity_value: The value for ``identity_key``.
+        allow_policy_events: ``False`` inside a linked (multi-market)
+            component — E7 defers events x multi-market to D2; ``True`` for
+            the single-market path (unchanged behaviour).
+
+    Returns:
+        The assembled market body dict (``identity_key`` + every merged
+        scenario/year field + ``"years"``).
+
+    Raises:
+        CompileError: No years in the market's grid; a config key written
+            by two different blocks; ``allow_policy_events`` is ``False``
+            and the node carries a non-empty ``policy_events`` param (E7).
+    """
     owners = _FieldOwners(market_node.id)
     scenario_fields: dict[str, Any] = {}
     year_entries: dict[str, dict[str, Any]] = {}
@@ -212,11 +363,18 @@ def _compile_market(graph: Graph, market_node: Node) -> dict[str, Any]:
     if not year_entries:
         raise CompileError(f"Market '{market_node.id}' has no years in its 'years' grid.")
 
-    owners.set_scenario(scenario_fields, "name", market_node.params.get("name", "New Scenario"), f"node:{market_node.id}")
-    for passthrough_key in ("sectors", "policy_events"):
+    owners.set_scenario(scenario_fields, identity_key, identity_value, f"node:{market_node.id}")
+    for passthrough_key in ("sectors", "policy_events", "price_unit"):
         raw = market_node.params.get(passthrough_key)
-        if raw:
-            owners.set_scenario(scenario_fields, passthrough_key, raw, f"node:{market_node.id}")
+        if not raw:
+            continue
+        if passthrough_key == "policy_events" and not allow_policy_events:
+            raise CompileError(
+                f"Market '{market_node.id}': policy_events is not permitted inside a "
+                "linked (multi-market) scenario — events x multi-market is deferred "
+                "to D2 (docs/platform-spec-d0-d1.md §7 E7)."
+            )
+        owners.set_scenario(scenario_fields, passthrough_key, raw, f"node:{market_node.id}")
 
     # Opaque unknown-key passthrough (see KNOWN_*_KEYS docstring above).
     scenario_extra = market_node.params.get("_scenario_extra")
@@ -239,6 +397,124 @@ def _compile_market(graph: Graph, market_node: Node) -> dict[str, Any]:
     _compile_strategic(graph, market_node, owners, scenario_fields)
 
     return {**scenario_fields, "years": list(year_entries.values())}
+
+
+def _compile_market(graph: Graph, market_node: Node) -> dict[str, Any]:
+    """Compile a size-one component: today's single-market scenario, VERBATIM."""
+    return _compile_market_fields(
+        graph,
+        market_node,
+        identity_key="name",
+        identity_value=market_node.params.get("name", "New Scenario"),
+        allow_policy_events=True,
+    )
+
+
+def _compile_links(
+    graph: Graph, market_nodes: list[Node], market_ids_in_component: set[str]
+) -> list[dict[str, Any]]:
+    """Compile every ``market_link`` node whose endpoints are both in this component.
+
+    Args:
+        graph: The drawn block graph.
+        market_nodes: This component's ``carbon_market`` nodes.
+        market_ids_in_component: ``{node.id for node in market_nodes}``.
+
+    Returns:
+        Raw link records (``from_market``/``to_market``/``channel``/``phi``/
+        ``phi_unit``/``target_participants`` + optionally
+        ``target_technologies``/``back_demand_estimate``) in market_link
+        node declaration order — ``config_io.normalize_scenario`` (via
+        ``validate_links``) is the value validator; this function only
+        derives the raw shape from the graph.
+    """
+    node_id_to_market_id = {n.id: str(n.params.get("name", "New Scenario")) for n in market_nodes}
+    links: list[dict[str, Any]] = []
+    for link_node in graph.nodes:
+        if link_node.block != "market_link":
+            continue
+        source_id, target_id = _link_endpoints(graph, link_node)
+        if source_id not in market_ids_in_component or target_id not in market_ids_in_component:
+            continue  # belongs to a different component
+        link: dict[str, Any] = {
+            "from_market": node_id_to_market_id[source_id],
+            "to_market": node_id_to_market_id[target_id],
+            "channel": link_node.params.get("channel"),
+            "phi": link_node.params.get("phi"),
+            "phi_unit": link_node.params.get("phi_unit"),
+            "target_participants": list(link_node.params.get("target_participants") or []),
+        }
+        target_technologies = link_node.params.get("target_technologies")
+        if target_technologies:
+            link["target_technologies"] = list(target_technologies)
+        back_demand_estimate = link_node.params.get("back_demand_estimate")
+        if back_demand_estimate is not None:
+            link["back_demand_estimate"] = back_demand_estimate
+        links.append(link)
+    return links
+
+
+def _compile_linked_scenario(graph: Graph, market_nodes: list[Node]) -> dict[str, Any]:
+    """Compile a >1-size component into one ``markets:[...]``+``links:[...]`` scenario.
+
+    Args:
+        graph: The drawn block graph.
+        market_nodes: This component's ``carbon_market`` nodes, sorted by
+            ``_order_key`` (:func:`_connected_components`'s contract).
+
+    Returns:
+        ``{"name": scenario_name, "markets": [...], "links": [...]}`` — each
+        market node's own ``name`` param becomes its ``market_id``; the
+        wrapping ``name`` comes from the (must-agree) ``scenario_name``
+        param, defaulting to the order-first market's own ``name``.
+
+    Raises:
+        CompileError: A ``scenario_name`` disagreement across the
+            component, or a ``"::"`` in a market id or the scenario name
+            (the engine's composite grouping-key separator,
+            ``"{scenario} :: {market_id}"``).
+    """
+    market_ids_in_component = {n.id for n in market_nodes}
+    markets: list[dict[str, Any]] = []
+    declared_scenario_names: dict[str, str] = {}
+    for market_node in market_nodes:
+        market_id = str(market_node.params.get("name", "New Scenario"))
+        markets.append(
+            _compile_market_fields(
+                graph, market_node,
+                identity_key="market_id", identity_value=market_id,
+                allow_policy_events=False,
+            )
+        )
+        declared = market_node.params.get("scenario_name")
+        if declared:
+            declared_scenario_names[market_node.id] = str(declared)
+
+    distinct_names = set(declared_scenario_names.values())
+    if len(distinct_names) > 1:
+        raise CompileError(
+            f"Markets {sorted(declared_scenario_names)} in one linked scenario declare "
+            f"disagreeing scenario_name values {sorted(distinct_names)} — scenario_name "
+            "must agree across a component (docs/platform-plan-d0-d1.md D1)."
+        )
+    scenario_name = (
+        next(iter(distinct_names)) if distinct_names else str(market_nodes[0].params.get("name", "New Scenario"))
+    )
+
+    if "::" in scenario_name:
+        raise CompileError(
+            f"Linked scenario name {scenario_name!r} contains '::' — reserved as the "
+            "engine's composite grouping-key separator ('{scenario} :: {market_id}')."
+        )
+    for market in markets:
+        if "::" in market["market_id"]:
+            raise CompileError(
+                f"Linked market id {market['market_id']!r} contains '::' — reserved as "
+                "the engine's composite grouping-key separator ('{scenario} :: {market_id}')."
+            )
+
+    links = _compile_links(graph, market_nodes, market_ids_in_component)
+    return {"name": scenario_name, "markets": markets, "links": links}
 
 
 def _merge_block_params(

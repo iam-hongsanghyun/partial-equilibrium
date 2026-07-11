@@ -342,6 +342,67 @@ def test_k_msr_decree_induces_investment_features() -> None:
     assert "endogenous_investment" in p1 and "endogenous_investment" in p0
 
 
+# ── (b‴) D1-4 multi-market signal (docs/platform-plan-d0-d1.md D1 "GRAPH
+#    DISENTANGLEMENT") — hand-built config dict, not examples/*.json (that
+#    fixture pool is owned by a concurrent work order).
+
+
+def _linked_manifest_config() -> dict:
+    """A minimal 2-market ``{hydrogen -> steel}`` mac_cost-linked scenario."""
+    hydrogen = {
+        "market_id": "hydrogen",
+        "price_unit": "USD/kgH2",
+        "years": [
+            {
+                "year": "2030", "total_cap": 100.0, "auction_mode": "explicit", "auction_offered": 50.0,
+                "participants": [{"name": "H2Producer", "initial_emissions": 50.0, "penalty_price": 100.0}],
+            }
+        ],
+    }
+    steel = {
+        "market_id": "steel",
+        "price_unit": "USD/tCO2",
+        "years": [
+            {
+                "year": "2030", "total_cap": 100.0, "auction_mode": "explicit", "auction_offered": 50.0,
+                "participants": [
+                    {
+                        "name": "SteelCo", "initial_emissions": 80.0, "penalty_price": 200.0,
+                        "technology_options": [
+                            {"name": "H2-DRI", "abatement_type": "threshold", "threshold_cost": 40.0}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    link = {
+        "from_market": "hydrogen", "to_market": "steel", "channel": "mac_cost",
+        "phi": 30.0, "phi_unit": "kgH2/tCO2",
+        "target_participants": ["SteelCo"], "target_technologies": ["H2-DRI"],
+    }
+    return {"scenarios": [{"name": "Two-Market", "markets": [hydrogen, steel], "links": [link]}]}
+
+
+def test_linked_scenario_manifest_carries_market_ids() -> None:
+    manifest = derive_manifest(_linked_manifest_config())
+    scenario_manifest = manifest["scenarios"]["Two-Market"]
+    assert scenario_manifest["markets"] == ["hydrogen", "steel"]
+
+
+def test_linked_scenario_manifest_includes_market_links_feature() -> None:
+    manifest = derive_manifest(_linked_manifest_config())
+    assert "market_links" in manifest["features"]
+    assert "market_links" in manifest["scenarios"]["Two-Market"]["features"]
+
+
+def test_flat_scenario_manifest_has_empty_markets_key() -> None:
+    manifest = derive_manifest(_load("climate_solutions_basic_linear"))
+    for scenario_manifest in manifest["scenarios"].values():
+        assert scenario_manifest["markets"] == []
+    assert "market_links" not in manifest["features"]
+
+
 # ── (c) vocabulary test ──────────────────────────────────────────────
 
 # Frozen literal vocabulary for BlockSpec.feature, per the catalogue-mapping
@@ -369,6 +430,7 @@ FEATURE_VOCABULARY = frozenset(
         "elastic_baseline",
         "sectors",
         "endogenous_investment",
+        "market_links",
         # analysis/workflow ids
         "batch_analysis",
         "calibration",

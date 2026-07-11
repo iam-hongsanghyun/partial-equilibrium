@@ -35,6 +35,10 @@ _MSR_MODES = ("bank_threshold", "price_band", "surplus_rule", "hybrid")
 _EXPECTATION_RULES = ("myopic", "next_year_baseline", "perfect_foresight", "manual")
 _UNSOLD_TREATMENTS = ("reserve", "cancel", "carry_forward")
 _AUCTION_MODES = ("explicit", "derive_from_cap")
+# Mirrors modules/market_links/backend/plugin.py:ALLOWED_LINK_CHANNELS (spec
+# §2b: v1 ships exactly these two, no default) — duplicated here only as
+# strings, per this module's own dependency law (see module docstring).
+_LINK_CHANNELS = ("mac_cost", "invest_break_even")
 
 # ── generic per-price-formation scenario fields ─────────────────────────
 # These scenario-level keys are ALWAYS present in a normalised scenario dict
@@ -124,6 +128,28 @@ def _market_block() -> BlockSpec:
                 "policy_events", "policy_events", "scenario", "list", default=(),
                 label="Policy-event timeline (raw pass-through)",
             ),
+            # D1 graph disentanglement (docs/platform-plan-d0-d1.md D1 "GRAPH
+            # DISENTANGLEMENT"; spec §6). price_unit is REQUIRED iff this
+            # market participates in a link (compile.py's own passthrough,
+            # NOT the generic scenario merge — see compile.py
+            # _compile_market_fields); absent = "today's carbon labels"
+            # (D1 COMPAT RULE, no injected default, byte-identical for every
+            # existing example).
+            ParamSpec(
+                "price_unit", "price_unit", "scenario", "str", None,
+                label="Price unit (REQUIRED iff this market is linked)",
+            ),
+            # scope="edge": never lands in a config_io scenario/market body
+            # directly — it is compile.py-only bookkeeping (like the
+            # existing unregistered "order" param) that selects the wrapping
+            # scenario's "name" for a >1-market linked component. Must agree
+            # across a linked component; defaults to the order-first
+            # market's own "name" (compile.py:_compile_linked_scenario).
+            ParamSpec(
+                "scenario_name", "scenario_name", "edge", "str", None,
+                label="Linked-scenario display name (multi-market only; "
+                "must agree across the component)",
+            ),
         ),
         ports=(
             PortSpec("participants", "in", "compliance", cardinality="1..n"),
@@ -133,6 +159,64 @@ def _market_block() -> BlockSpec:
             PortSpec("expectations", "in", "expectations", cardinality="0..1"),
             PortSpec("baseline", "in", "baseline", cardinality="0..1"),
             PortSpec("results", "out", "results"),
+            # D1 market links (docs/platform-spec-d0-d1.md §2): "signal" is
+            # this market's SOLVED delivered price, read by a market_link's
+            # "from" port; "links" receives inbound market_link edges — a
+            # market may have 0..n inbound links (spec §3 "multiple distinct
+            # sources sum order-invariantly"). A market_link edge on either
+            # port is what makes this carbon_market node join a >1-market
+            # connected component at compile time (compile.py
+            # _connected_components) — a market with NEITHER port connected
+            # compiles exactly as today (component of size one).
+            PortSpec("signal", "out", "market_signal"),
+            PortSpec("links", "in", "market_link", cardinality="0..n"),
+        ),
+    )
+
+
+def _market_link_block() -> BlockSpec:
+    return BlockSpec(
+        id="market_link",
+        label="Market Link",
+        category="links",
+        doc=(
+            "One-way price link A -> B (docs/platform-spec-d0-d1.md §2); "
+            "compiles into the linked scenario's 'links' array "
+            "(core/backend/blocks/compile.py:_compile_links)."
+        ),
+        feature="market_links",
+        params=(
+            # REQUIRED, no default (spec §6: "a defaulted functional form/
+            # channel is an economic constant hiding in a fallback").
+            ParamSpec(
+                "channel", "channel", "edge", "enum", None, enum=_LINK_CHANNELS,
+                label="Channel (demand-side only)",
+            ),
+            ParamSpec(
+                "phi", "phi", "edge", "float", None,
+                label="phi — link coefficient (sign-free, 0 legal)",
+            ),
+            ParamSpec(
+                "phi_unit", "phi_unit", "edge", "str", None,
+                label="phi unit [units_B per units_A] (REQUIRED)",
+            ),
+            ParamSpec(
+                "target_participants", "target_participants", "edge", "list", default=(),
+                label="Target participants (explicit names, or ['*'] for all — "
+                "no implicit 'all')",
+            ),
+            ParamSpec(
+                "target_technologies", "target_technologies", "edge", "list", default=(),
+                label="Target technologies (REQUIRED for channel=mac_cost)",
+            ),
+            ParamSpec(
+                "back_demand_estimate", "back_demand_estimate", "edge", "float", None,
+                label="psi — diagnostic-only feedback estimate, never fed back",
+            ),
+        ),
+        ports=(
+            PortSpec("from", "in", "market_signal", cardinality="1"),
+            PortSpec("link", "out", "market_link"),
         ),
     )
 
@@ -673,6 +757,7 @@ def _build_catalogue() -> BlockRegistry:
     registry = BlockRegistry()
     for block in (
         _market_block(),
+        _market_link_block(),
         *_price_formation_blocks(),
         *_policy_blocks(),
         *_feedback_blocks(),

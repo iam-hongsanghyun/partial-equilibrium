@@ -1,8 +1,9 @@
 """Rule -> plain-language suggestion table, for the ``check`` tool's ``next_steps``.
 
 Source of truth: ``docs/blocks-composition-rules.md`` §4 (the validator rule
-list, R1-R33, plus the synthetic ``"R-unconnected"`` warning
-``ets.blocks.validate`` also emits). Every entry here is deliberately
+list, R1-R33) plus ``docs/platform-spec-d0-d1.md`` §3/§7 (R34-R36, the D1-4
+market-link rules), and the synthetic ``"R-unconnected"`` warning
+``ets.blocks.validate`` also emits. Every entry here is deliberately
 generic advice about *what the fix is*, phrased as a question the AI can put
 to the user — the specific numbers/node ids of any one violation are already
 in the issue's own ``message`` (:class:`~ets.blocks.validate.ValidationIssue`);
@@ -191,6 +192,25 @@ RULE_SUGGESTIONS: dict[str, str] = {
         "or rubin_schennach_banking price formation (v1 approach coverage). "
         "Want me to switch this market's price formation, or remove the "
         "endogenous_investment block?"
+    ),
+    "R34": (
+        "The market_link graph has a cycle, a self-link, or a market_link "
+        "block that isn't wired with exactly one inbound 'from' edge and one "
+        "outbound 'link' edge — D1 only solves one-way DAGs (a cycle is the "
+        "joint fixed point, deferred to D2). Want me to remove or rewire the "
+        "offending link?"
+    ),
+    "R35": (
+        "This market_link's channel must be mac_cost or invest_break_even "
+        "(demand-side only), or it duplicates another link with the same "
+        "source, target, and channel. Want me to fix the channel, or remove "
+        "the duplicate?"
+    ),
+    "R36": (
+        "Every market touching a link must declare price_unit, and every "
+        "market_link must declare phi_unit — a missing unit is an economic "
+        "constant hiding in a silent default. Want me to set the missing "
+        "unit(s)?"
     ),
     "R-unconnected": (
         "This node isn't wired to anything yet. Want me to connect it (see "

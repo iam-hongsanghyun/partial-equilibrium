@@ -21,6 +21,7 @@ from ..features.endogenous_investment.plugin import (
     attach_adoption_specs as _attach_adoption_specs,
     normalize_investment_trigger as _normalize_investment_trigger,
 )
+from ..features.market_links.plugin import validate_links
 from ..features.msr.plugin import MSRSummaryPlaceholderReporter
 from ..features.oba.plugin import OBABenchmarkAllocation
 from ..features.price_controls.plugin import apply_price_bound_trajectories
@@ -214,26 +215,6 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 _ALLOWED_MSR_MODES = {"bank_threshold", "price_band", "surplus_rule", "hybrid"}
-
-# D1 interim safety rail (docs/platform-plan-d0-d1.md D1 COMPAT RULE;
-# docs/platform-spec-d0-d1.md §6): a `markets`-shaped scenario is NOT yet
-# solvable — the engine/blocks wiring lands in D1-3/D1-4. Swallowing it
-# through `_scenario_extra`'s opaque unknown-key passthrough (blocks/
-# compile.py, blocks/decompile.py) would silently accept a config nothing
-# actually solves per its declared multi-market semantics, so both
-# `normalize_scenario` (and therefore `normalize_config`/`load_config`/
-# `save_config`/`build_markets_from_config`, and the decompile path via
-# `blocks.decompile.graph_from_config`, which calls `normalize_config`
-# first) reject it loudly. `config_io.markets.iter_market_bodies` is the one
-# sanctioned reader of a `markets`-shaped scenario until then.
-_MARKETS_KEY_GUARD_MESSAGE = (
-    "Scenario carries a 'markets' key: multi-market scenarios are schema-"
-    "only in this build (docs/platform-plan-d0-d1.md D1-1) — engine/blocks "
-    "wiring lands in D1-3/D1-4, so this scenario cannot be solved yet. Use "
-    "pe.config_io.iter_market_bodies() to inspect its market bodies "
-    "directly, or keep this scenario single-market (no 'markets' key) "
-    "until D1-4 ships."
-)
 
 
 def _validated_msr_mode(scenario: dict[str, Any], label: str) -> str:
@@ -437,9 +418,65 @@ def _normalize_market_body(raw_body: Mapping[str, Any], *, label: str) -> dict[s
     return body
 
 
+def _normalize_markets_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a ``markets``-shaped (multi-market, linked) scenario (D1-4).
+
+    The GRAPH DISENTANGLEMENT counterpart of the flat single-market path
+    (``docs/platform-plan-d0-d1.md`` D1): a scenario carrying ``markets``
+    normalizes each entry through the SAME per-market internals
+    (:func:`_normalize_market_body`) the flat path calls, then validates its
+    ``links`` through the ``market_links`` plugin door
+    (:func:`~pe.features.market_links.plugin.validate_links`). This is the
+    ONE normalization of a multi-market scenario — ``config_io.markets.
+    iter_market_bodies`` (the D1-1 accessor) delegates here rather than
+    duplicating the walk (D1-1's own inline logic retired in D1-4, now that
+    the guard this function replaces is gone).
+
+    Args:
+        raw_scenario: A raw scenario dict carrying a ``markets`` key
+            (``docs/platform-spec-d0-d1.md`` §6).
+
+    Returns:
+        ``{"name": ..., "markets": [{"market_id": ..., **normalized body},
+        ...], "links": [...normalized links...]}`` — every market body
+        normalized via :func:`_normalize_market_body`; every link
+        normalized via ``validate_links`` (spec §2, §6).
+
+    Raises:
+        ValueError: Empty/non-list/malformed ``markets``; a missing, empty,
+            or duplicate ``market_id``; any per-market body validation
+            error; or any link validation error (``validate_links``).
+    """
+    name = str(raw_scenario.get("name", "New Scenario")).strip()
+    if not name:
+        raise ValueError("Each scenario must have a non-empty name.")
+
+    raw_markets = raw_scenario.get("markets")
+    if not isinstance(raw_markets, list) or not raw_markets:
+        raise ValueError(f"Scenario '{name}': 'markets' must be a non-empty list.")
+
+    markets: list[dict[str, Any]] = []
+    bodies_by_id: dict[str, dict[str, Any]] = {}
+    for index, raw_market in enumerate(raw_markets):
+        if not isinstance(raw_market, dict):
+            raise ValueError(f"Scenario '{name}' markets[{index}] must be an object.")
+        market_id = str(raw_market.get("market_id", "")).strip()
+        if not market_id:
+            raise ValueError(f"Scenario '{name}' markets[{index}] must have a non-empty 'market_id'.")
+        if market_id in bodies_by_id:
+            raise ValueError(f"Scenario '{name}' markets contains duplicate market_id '{market_id}'.")
+        body = _normalize_market_body(raw_market, label=f"Market '{market_id}'")
+        bodies_by_id[market_id] = body
+        markets.append({"market_id": market_id, **body})
+
+    links = validate_links(raw_scenario.get("links") or [], bodies_by_id)
+
+    return {"name": name, "markets": markets, "links": links}
+
+
 def normalize_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
     if "markets" in raw_scenario:
-        raise ValueError(_MARKETS_KEY_GUARD_MESSAGE)
+        return _normalize_markets_scenario(raw_scenario)
     name = str(raw_scenario.get("name", "New Scenario")).strip()
     if not name:
         raise ValueError("Each scenario must have a non-empty name.")
@@ -485,6 +522,14 @@ def build_markets_from_config(config: dict[str, Any]) -> list[CarbonMarket]:
     normalized = normalize_config(deepcopy(config))
     markets: list[CarbonMarket] = []
     for scenario in normalized["scenarios"]:
+        if "markets" in scenario:
+            raise ValueError(
+                f"Scenario '{scenario.get('name')}' carries a 'markets' key: "
+                "build_markets_from_config is the flat single-market builder — "
+                "a linked (multi-market) scenario is solved via "
+                "pe.engine.run_simulation_from_config (which routes it to "
+                "pe.engine.solve_multi_market_scenario), never this function."
+            )
         scenario_meta = {
             "model_approach": scenario.get("model_approach", "competitive"),
             "discount_rate": scenario.get("discount_rate", 0.04),

@@ -27,6 +27,18 @@ respectively (``compile_graph`` accepts both representations). The
 config keys (see ``catalogue.py``) and ``compare_all`` is not a drawable
 block.
 
+GRAPH DISENTANGLEMENT (D1-4, ``docs/platform-plan-d0-d1.md`` D1 "GRAPH
+DISENTANGLEMENT"): a ``markets``-shaped (linked, multi-market) scenario
+decompiles via :func:`_decompile_linked_scenario` — one ``carbon_market``
+node per ``markets[i]`` entry (its ``market_id`` -> the node's ``name``
+param) plus one ``market_link`` node per ``links[i]`` entry, wired
+``signal -> from`` / ``link -> links``. A single-market scenario (no
+``markets`` key) still decompiles via :func:`_decompile_scenario` — the
+pre-D1-4 interim loud guard (D1-1: "markets-shaped scenarios are schema-
+only") is retired now that both directions are wired; the two paths share
+:func:`_decompile_market_body`, the one place that knows how to walk a
+market body regardless of which shape it arrived in.
+
 Dependency law: this module imports only ``ets.blocks`` siblings,
 ``ets.config_io``, and stdlib.
 """
@@ -102,7 +114,10 @@ def graph_from_config(config: dict[str, Any]) -> Graph:
     nodes: list[Node] = []
     edges: list[Edge] = []
     for scenario_index, scenario in enumerate(normalized["scenarios"]):
-        _decompile_scenario(scenario, scenario_index, nodes, edges)
+        if "markets" in scenario:
+            _decompile_linked_scenario(scenario, scenario_index, nodes, edges)
+        else:
+            _decompile_scenario(scenario, scenario_index, nodes, edges)
     return Graph(nodes=nodes, edges=edges, meta={})
 
 
@@ -110,20 +125,118 @@ def _decompile_scenario(
     scenario: dict[str, Any], scenario_index: int, nodes: list[Node], edges: list[Edge]
 ) -> None:
     market_id = f"market{scenario_index}"
-    years: list[dict[str, Any]] = scenario["years"]
+    _decompile_market_body(scenario, market_id, scenario["name"], {"order": scenario_index}, nodes, edges)
+
+
+def _decompile_linked_scenario(
+    scenario: dict[str, Any], scenario_index: int, nodes: list[Node], edges: list[Edge]
+) -> None:
+    """Decompile a ``markets``-shaped (multi-market, linked) scenario (D1-4).
+
+    Inverse of ``compile.py``'s :func:`~ets.blocks.compile._compile_linked_scenario`:
+    every ``markets[i]`` entry becomes one ``carbon_market`` node (its
+    ``market_id`` -> the node's ``name`` param — the same field a size-one
+    component uses for the scenario name) plus its own sub-nodes, and every
+    ``links[i]`` entry becomes one ``market_link`` node wired ``signal`` ->
+    ``from`` -> ``link`` -> ``links``. The wrapping scenario's ``name`` is
+    restated as the FIRST market's ``scenario_name`` param only when it
+    differs from that market's own ``market_id`` (compile's default-
+    resolution already reconstructs it otherwise — decompile.py's usual
+    "reads like what a human would actually have drawn" discipline).
+
+    Node ids nest under the SAME ``market{scenario_index}_`` prefix the
+    flat path uses for one market's sub-nodes (``manifest.py``'s
+    ``_market_node_ids`` prefix-match already generalizes to N such
+    sub-prefixes per scenario without changes).
+
+    Args:
+        scenario: A normalized ``markets``/``links``-shaped scenario dict.
+        scenario_index: This scenario's index in the config's top-level list.
+        nodes: Accumulating node list (mutated in place).
+        edges: Accumulating edge list (mutated in place).
+    """
+    markets: list[dict[str, Any]] = scenario["markets"]
+    links: list[dict[str, Any]] = scenario.get("links") or []
+    scenario_name = scenario["name"]
+
+    node_id_by_market_id: dict[str, str] = {}
+    for index, market in enumerate(markets):
+        market_id = market["market_id"]
+        node_id = f"market{scenario_index}_{index}"
+        node_id_by_market_id[market_id] = node_id
+        extra_params: dict[str, Any] = {"order": index}
+        if index == 0 and scenario_name != market_id:
+            extra_params["scenario_name"] = scenario_name
+        body = {k: v for k, v in market.items() if k != "market_id"}
+        _decompile_market_body(body, node_id, market_id, extra_params, nodes, edges)
+
+    for link_index, link in enumerate(links):
+        link_node_id = f"market{scenario_index}_link{link_index}"
+        params: dict[str, Any] = {
+            "channel": link["channel"],
+            "phi": link["phi"],
+            "phi_unit": link["phi_unit"],
+            "target_participants": link["target_participants"],
+        }
+        if link.get("target_technologies"):
+            params["target_technologies"] = link["target_technologies"]
+        if link.get("back_demand_estimate") is not None:
+            params["back_demand_estimate"] = link["back_demand_estimate"]
+        nodes.append(Node(link_node_id, "market_link", params))
+        edges.append(Edge(node_id_by_market_id[link["from_market"]], "signal", link_node_id, "from"))
+        edges.append(Edge(link_node_id, "link", node_id_by_market_id[link["to_market"]], "links"))
+
+
+def _decompile_market_body(
+    body: dict[str, Any],
+    market_id: str,
+    node_name: str,
+    extra_market_params: dict[str, Any],
+    nodes: list[Node],
+    edges: list[Edge],
+) -> None:
+    """Decompile one market body into a ``carbon_market`` node plus its sub-nodes.
+
+    Shared by the flat single-market path (``body`` = a whole normalized
+    scenario dict) and the linked multi-market path (``body`` = one
+    ``markets[i]`` entry minus ``market_id``) — a market body is "today's
+    scenario body minus name/policy_events" (D1 COMPAT RULE), so this is the
+    ONE place that knows how to walk one, mirroring
+    ``compile.py``'s :func:`~ets.blocks.compile._compile_market_fields`.
+
+    Args:
+        body: The market body (flat scenario dict, or one ``markets[i]``
+            entry with ``market_id`` stripped).
+        market_id: This market's graph node id (the ``carbon_market`` node
+            AND every sub-node's id prefix).
+        node_name: The node's ``name`` param — the scenario's own name for a
+            flat market, or this market's ``market_id`` for a linked one
+            (``compile.py``'s ``_compile_market_fields`` reads the SAME
+            node param as either "scenario name" or "market_id" depending
+            on which path compiles it; the graph-side param name never
+            changes).
+        extra_market_params: Extra params to seed onto the node
+            (``order``, and — linked case only — ``scenario_name`` on the
+            first market when it disagrees with its own ``market_id``).
+        nodes: Accumulating node list (mutated in place).
+        edges: Accumulating edge list (mutated in place).
+    """
+    years: list[dict[str, Any]] = body["years"]
     year_labels = [str(y["year"]) for y in years]
 
     market_params: dict[str, Any] = {
-        "name": scenario["name"],
+        "name": node_name,
         "years": [{k: y[k] for k in _MARKET_YEAR_GRID_KEYS} for y in years],
-        "order": scenario_index,
+        **extra_market_params,
     }
-    if scenario.get("sectors"):
-        market_params["sectors"] = scenario["sectors"]
-    if scenario.get("policy_events"):
-        market_params["policy_events"] = scenario["policy_events"]
+    if body.get("sectors"):
+        market_params["sectors"] = body["sectors"]
+    if body.get("policy_events"):
+        market_params["policy_events"] = body["policy_events"]
+    if body.get("price_unit"):
+        market_params["price_unit"] = body["price_unit"]
 
-    scenario_extra = {k: v for k, v in scenario.items() if k not in KNOWN_SCENARIO_KEYS and k != "years"}
+    scenario_extra = {k: v for k, v in body.items() if k not in KNOWN_SCENARIO_KEYS and k != "years"}
     if scenario_extra:
         market_params["_scenario_extra"] = scenario_extra
     year_extra_by_year = {
@@ -135,25 +248,25 @@ def _decompile_scenario(
     nodes.append(Node(market_id, "carbon_market", market_params))
 
     pf_id = f"{market_id}_pf"
-    pf_block = _decompile_price_formation(scenario, pf_id, nodes)
+    pf_block = _decompile_price_formation(body, pf_id, nodes)
     edges.append(Edge(pf_id, "price_formation", market_id, "price_formation"))
 
     participant_ids = _decompile_participants(years, year_labels, market_id, nodes, edges)
 
     if pf_block == "nash_cournot":
-        for name in scenario.get("nash_strategic_participants") or []:
+        for name in body.get("nash_strategic_participants") or []:
             for pid in participant_ids:
                 pnode = next(n for n in nodes if n.id == pid)
                 if pnode.params.get("name") == name:
                     edges.append(Edge(pid, "strategic", pf_id, "strategic"))
 
-    _decompile_msr(scenario, market_id, nodes, edges)
-    _decompile_ccr(scenario, market_id, nodes, edges)
-    _decompile_endogenous_investment(scenario, market_id, nodes, edges)
-    _decompile_year_policy(scenario, years, market_id, nodes, edges)
-    _decompile_scenario_policy(scenario, market_id, nodes, edges)
-    _decompile_expectations(scenario, years, market_id, nodes, edges)
-    _decompile_baseline(scenario, market_id, nodes, edges)
+    _decompile_msr(body, market_id, nodes, edges)
+    _decompile_ccr(body, market_id, nodes, edges)
+    _decompile_endogenous_investment(body, market_id, nodes, edges)
+    _decompile_year_policy(body, years, market_id, nodes, edges)
+    _decompile_scenario_policy(body, market_id, nodes, edges)
+    _decompile_expectations(body, years, market_id, nodes, edges)
+    _decompile_baseline(body, market_id, nodes, edges)
 
 
 def _decompile_price_formation(scenario: dict[str, Any], pf_id: str, nodes: list[Node]) -> str:
