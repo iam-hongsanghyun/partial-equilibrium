@@ -2,6 +2,11 @@
 # This file is kept for the Vercel deploy pipeline (vercel.json / api/index.py),
 # which installs from requirements.txt. Keep the pinned lines below in sync
 # with pyproject.toml; do not delete or empty this file.
+#
+# `.` builds+installs the pe wheel (WO-0): the package_dir remap that reunites a
+# split package lives only in the installed wheel, so Vercel MUST install the
+# project, not just place src/ on sys.path.
+.
 numpy
 pandas
 scipy

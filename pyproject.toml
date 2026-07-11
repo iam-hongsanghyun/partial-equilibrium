@@ -30,7 +30,8 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# pythonpath=["src"] DROPPED (WO-0): tests import the editable-installed `pe`
+# (uv sync / pip install -e). A split package is not sys.path-reconstructable.
 testpaths = ["tests"]
 
 [tool.ruff]

@@ -25,17 +25,17 @@ else
   fi
 
   if [[ -f "$REQUIREMENTS" ]] && { [[ ! -f "$STAMP" ]] || [[ "$REQUIREMENTS" -nt "$STAMP" ]]; }; then
-    echo "Installing requirements ..."
+    echo "Installing the pe package (editable) ..."
     "$PYTHON_BIN" -m pip install --upgrade pip
-    "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS"
+    "$PYTHON_BIN" -m pip install -e ".[dev]"
     touch "$STAMP"
   fi
   PY=("$PYTHON_BIN")
 fi
 
-# Ensure `-m pe.cli` resolves on the pip-fallback path too (uv already installs
-# the pe package; PYTHONPATH is harmless there and required without it).
-export PYTHONPATH="$SCRIPT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+# Both paths editable-install the pe package (uv sync / pip install -e), so
+# `-m pe.cli` resolves via the install — no PYTHONPATH=$SRC needed (WO-0). A
+# split package is not sys.path-reconstructable; only the install carries it.
 
 if [[ "$#" -eq 0 ]]; then
   exec "${PY[@]}" -m pe.cli --gui
