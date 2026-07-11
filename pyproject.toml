@@ -75,6 +75,7 @@ packages = [
 "pe.features.endogenous_investment"  = "modules/endogenous_investment/backend"
 "pe.features.hoarding"               = "modules/hoarding/backend"
 "pe.features.hotelling"              = "modules/hotelling/backend"
+"pe.features.msr"                    = "modules/msr/backend"
 
 [tool.pytest.ini_options]
 # pythonpath=["src"] DROPPED (WO-0): tests import the editable-installed `pe`
