@@ -1,0 +1,63 @@
+{
+  "description": {
+    "title": "Renewable Portfolio Standard (REC market) with an alternative-compliance-payment buyout -- 'emission is just a flow'",
+    "economic_framing": "The same partial-equilibrium engine, relabelled from a carbon market to a Renewable Portfolio Standard (RPS): the traded flow is Renewable Energy Certificates (REC, in TWh), priced in USD/MWh. Two load-serving entities (LSEs) carry an RPS OBLIGATION (the flow's 'initial_emissions') that ramps up over 2026-2028. Each LSE can SELF-SUPPLY certificates by building its own renewables (the 'abatement', a rising marginal cost so a_i = P/cost_slope_i) or BUY RECs from the shared certificate pool (the 'auction'). An Alternative Compliance Payment (ACP) acts as a BUYOUT: an LSE never pays more than the ACP per certificate, so the ACP is a HARD PRICE CEILING and any obligation the market cannot physically supply at the ACP is extinguished by paying it.",
+    "mechanism": "flow_label=REC, flow_unit=TWh, price_unit=USD/MWh; the ACP is the participants' penalty_price = 50 USD/MWh. Below the ACP the market clears at the interior price P = (obligation - REC_pool) / (1/slope_N + 1/slope_S). When the ramping obligation would push the clearing price above the ACP, LSE demand for bought certificates collapses at the ACP (they buy out instead of paying more), so the price PINS at the ACP: 'Equilibrium Carbon Price' = 50, the certificate pool sells out (Auction Sold = 64), and the residual obligation the pool cannot supply shows up as 'Total Allowance Buys' EXCEEDING 'Auction Sold' -- that gap is the ACP buyout volume (obligation - self_build - pool).",
+    "expected_output": {
+      "RPS obligation 2026-2028 [TWh]": [80.0, 95.0, 125.0],
+      "REC price 2026-2028 [USD/MWh]": [19.2, 37.2, 50.0],
+      "Self-build (Total Abatement) 2026-2028 [TWh]": [16.0, 31.0, 41.666667],
+      "Certificates supplied (Auction Sold) 2026-2028 [TWh]": [64.0, 64.0, 64.0],
+      "Total Allowance Buys 2026-2028 [TWh]": [64.0, 64.0, 83.333333],
+      "ACP buyout volume = Buys - Sold [TWh]": [0.0, 0.0, 19.333333],
+      "reading": "2026-2027: the obligation (80, 95 TWh) is met by cost-limited self-build (16, 31 TWh) plus the 64 TWh certificate pool at interior prices 19.2 and 37.2 USD/MWh, below the 50 ACP -- no buyout. 2028: the 125 TWh target would clear above the ACP, so the price pins at 50 USD/MWh; self-build reaches 41.67 TWh (P/slope), the pool sells out (64 TWh), and the remaining 19.33 TWh of obligation is bought out at the ACP (Buys 83.33 > Sold 64). This is the carbon-market solver with emissions relabelled as a REC obligation and the compliance penalty as the RPS buyout: emission is just a flow."
+    }
+  },
+  "scenarios": [
+    {
+      "name": "RPS with ACP buyout",
+      "model_approach": "competitive",
+      "flow_label": "REC",
+      "flow_unit": "TWh",
+      "price_unit": "USD/MWh",
+      "years": [
+        {
+          "year": "2026",
+          "total_cap": 64.0,
+          "auction_mode": "explicit",
+          "auction_offered": 64.0,
+          "price_upper_bound": 200.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Utility_North", "initial_emissions": 48.0, "free_allocation_ratio": 0.0, "penalty_price": 50.0, "abatement_type": "linear", "max_abatement": 48.0, "cost_slope": 2.0},
+            {"name": "Utility_South", "initial_emissions": 32.0, "free_allocation_ratio": 0.0, "penalty_price": 50.0, "abatement_type": "linear", "max_abatement": 32.0, "cost_slope": 3.0}
+          ]
+        },
+        {
+          "year": "2027",
+          "total_cap": 64.0,
+          "auction_mode": "explicit",
+          "auction_offered": 64.0,
+          "price_upper_bound": 200.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Utility_North", "initial_emissions": 57.0, "free_allocation_ratio": 0.0, "penalty_price": 50.0, "abatement_type": "linear", "max_abatement": 57.0, "cost_slope": 2.0},
+            {"name": "Utility_South", "initial_emissions": 38.0, "free_allocation_ratio": 0.0, "penalty_price": 50.0, "abatement_type": "linear", "max_abatement": 38.0, "cost_slope": 3.0}
+          ]
+        },
+        {
+          "year": "2028",
+          "total_cap": 64.0,
+          "auction_mode": "explicit",
+          "auction_offered": 64.0,
+          "price_upper_bound": 200.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Utility_North", "initial_emissions": 75.0, "free_allocation_ratio": 0.0, "penalty_price": 50.0, "abatement_type": "linear", "max_abatement": 75.0, "cost_slope": 2.0},
+            {"name": "Utility_South", "initial_emissions": 50.0, "free_allocation_ratio": 0.0, "penalty_price": 50.0, "abatement_type": "linear", "max_abatement": 50.0, "cost_slope": 3.0}
+          ]
+        }
+      ]
+    }
+  ]
+}

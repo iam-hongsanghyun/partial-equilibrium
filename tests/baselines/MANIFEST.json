@@ -1,0 +1,114 @@
+{
+ "git_sha": "2b0af9b4f28169391f702597dbe8f550bbef8d61",
+ "git_dirty": true,
+ "captured": "2026-07-12",
+ "command": "uv run python tests/baselines/_capture.py",
+ "environment": {
+  "python": "3.12.10",
+  "numpy": "2.5.1",
+  "scipy": "1.18.0",
+  "pandas": "3.0.3"
+ },
+ "entry_points": {
+  "default": "ets.run_simulation_from_file (src/ets/solvers/simulation.py)",
+  "batch_request": "ets.analysis.batch.run_batch",
+  "calibration_request": "ets.analysis.calibration.calibrate_slopes"
+ },
+ "tolerance_policy": "bit-identical (rtol=0, atol=0) unless relaxed in-test with sign-off from lead-modeller and ets-lead-economist",
+ "scenarios": {
+  "banking_msr": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    10,
+    51
+   ],
+   "participants_shape": [
+    20,
+    36
+   ]
+  },
+  "competitive_basic": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    6,
+    50
+   ],
+   "participants_shape": [
+    18,
+    36
+   ]
+  },
+  "joint_investment": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    2,
+    59
+   ],
+   "participants_shape": [
+    2,
+    36
+   ]
+  },
+  "joint_oscillating": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    2,
+    55
+   ],
+   "participants_shape": [
+    2,
+    36
+   ]
+  },
+  "joint_two_market": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    2,
+    55
+   ],
+   "participants_shape": [
+    2,
+    36
+   ]
+  },
+  "link_oneway": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    6,
+    49
+   ],
+   "participants_shape": [
+    6,
+    36
+   ]
+  },
+  "rps_rec": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    3,
+    46
+   ],
+   "participants_shape": [
+    6,
+    36
+   ]
+  }
+ },
+ "audit_log": [
+  "2026-07-12: capture at 2b0af9b (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3"
+ ]
+}

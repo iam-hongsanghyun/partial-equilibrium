@@ -1,0 +1,128 @@
+{
+  "description": {
+    "title": "One-way price link A -> B (recursive/block-recursive partial equilibrium)",
+    "economic_framing": "A large REFERENCE carbon market (ETS_ref) and a smaller LINKED market (ETS_link). A firm in the linked market abates through a fuel-switching technology whose cost rises with the reference carbon price (e.g. the switch competes for the same low-carbon fuel priced off the reference market). The coupling is ONE-WAY: the reference price drives the linked market's abatement cost, but the linked market is too small to feed back into the reference price. This is a recursive (block-recursive) partial equilibrium -- solved once in topological order, no fixed-point iteration.",
+    "mechanism": "ETS_ref clears competitively at P_ref = sigma*(E0 - Q_ref) = 2*(100 - Q_ref); as its cap Q_ref declines 60->55->50 the reference price rises 80->90->100. The mac_cost link A->B (phi=0.5) lifts the linked market's threshold block cost to c_B + phi*P_ref, and the interior linked market pins there: P_link = 10 + 0.5*P_ref = 50->55->60. ETS_ref is UNAFFECTED by ETS_link (upstream invariance): its solved price is byte-identical with or without the outgoing link.",
+    "expected_output": {
+      "P_ref 2026-2028 [USD/tCO2]": [80.0, 90.0, 100.0],
+      "P_link 2026-2028 [USD/tCO2]": [50.0, 55.0, 60.0],
+      "Link A->B mac_cost Input Shift 2026-2028 [USD/tCO2]": [40.0, 45.0, 50.0],
+      "reading": "The linked market's price is exactly c_B + phi*P_ref each year -- the transmission is inert-as-mechanism (P_link is what a standalone market with a hand-shifted threshold would give) but meaningful-as-information (it carries the reference price into the linked market's cost). A never sees B; the acyclic run stamps no Joint* columns."
+    }
+  },
+  "scenarios": [
+    {
+      "name": "One-way linked carbon markets",
+      "markets": [
+        {
+          "market_id": "ETS_ref",
+          "price_unit": "USD/tCO2",
+          "years": [
+            {
+              "year": "2026",
+              "total_cap": 60.0,
+              "auction_mode": "explicit",
+              "auction_offered": 60.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {"name": "Ref_firm", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "cost_slope": 2.0, "max_abatement": 100.0}
+              ]
+            },
+            {
+              "year": "2027",
+              "total_cap": 55.0,
+              "auction_mode": "explicit",
+              "auction_offered": 55.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {"name": "Ref_firm", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "cost_slope": 2.0, "max_abatement": 100.0}
+              ]
+            },
+            {
+              "year": "2028",
+              "total_cap": 50.0,
+              "auction_mode": "explicit",
+              "auction_offered": 50.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {"name": "Ref_firm", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "cost_slope": 2.0, "max_abatement": 100.0}
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": "ETS_link",
+          "price_unit": "USD/tCO2",
+          "years": [
+            {
+              "year": "2026",
+              "total_cap": 80.0,
+              "auction_mode": "explicit",
+              "auction_offered": 80.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {
+                  "name": "Link_firm",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 100000.0,
+                  "abatement_type": "threshold",
+                  "threshold_cost": 999.0,
+                  "max_abatement": 0.0,
+                  "technology_options": [
+                    {"name": "fuel_switch", "abatement_type": "threshold", "threshold_cost": 10.0, "initial_emissions": 100.0, "max_abatement": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "max_activity_share": 1.0}
+                  ]
+                }
+              ]
+            },
+            {
+              "year": "2027",
+              "total_cap": 80.0,
+              "auction_mode": "explicit",
+              "auction_offered": 80.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {
+                  "name": "Link_firm",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 100000.0,
+                  "abatement_type": "threshold",
+                  "threshold_cost": 999.0,
+                  "max_abatement": 0.0,
+                  "technology_options": [
+                    {"name": "fuel_switch", "abatement_type": "threshold", "threshold_cost": 10.0, "initial_emissions": 100.0, "max_abatement": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "max_activity_share": 1.0}
+                  ]
+                }
+              ]
+            },
+            {
+              "year": "2028",
+              "total_cap": 80.0,
+              "auction_mode": "explicit",
+              "auction_offered": 80.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {
+                  "name": "Link_firm",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 100000.0,
+                  "abatement_type": "threshold",
+                  "threshold_cost": 999.0,
+                  "max_abatement": 0.0,
+                  "technology_options": [
+                    {"name": "fuel_switch", "abatement_type": "threshold", "threshold_cost": 10.0, "initial_emissions": 100.0, "max_abatement": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "max_activity_share": 1.0}
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "links": [
+        {"from_market": "ETS_ref", "to_market": "ETS_link", "channel": "mac_cost", "phi": 0.5, "phi_unit": "USD/tCO2 per USD/tCO2", "target_participants": ["Link_firm"], "target_technologies": ["fuel_switch"]}
+      ]
+    }
+  ]
+}

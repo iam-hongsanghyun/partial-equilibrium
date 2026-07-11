@@ -1,0 +1,100 @@
+{
+  "description": {
+    "title": "Competitive clearing under a declining cap (the hello-world)",
+    "economic_framing": "One carbon market, three compliance entities with distinct marginal-abatement-cost (MAC) slopes, cleared competitively year by year (no banking, each year is an independent static auction). The cap declines 10 Mt/yr from 180 to 130 Mt over 2025-2030, forcing more abatement each year and lifting the allowance price along the aggregate MAC curve.",
+    "mechanism": "Each firm i abates a_i(P) = min(max_abatement_i, P / cost_slope_i) and buys allowances for its residual emissions (no free allocation). The market price is the P at which aggregate residual demand equals the auctioned cap: sum_i (E0_i - a_i(P)) = cap. As the cap tightens the required abatement rises, so P climbs the merit order Power (slope 2) -> Steel (slope 4) -> Cement (slope 6).",
+    "participants": "Power E0=100 Mt (max abate 50, slope 2), Steel E0=60 Mt (max abate 30, slope 4), Cement E0=40 Mt (max abate 15, slope 6). BAU total 200 Mt; total abatement capacity 95 Mt.",
+    "expected_output": {
+      "Equilibrium Carbon Price 2025-2030 [USD/tCO2]": [
+        21.818181818181785,
+        32.727272727272684,
+        43.63636363636368,
+        54.545454545454575,
+        65.45454545454542,
+        76.36363636363637
+      ],
+      "Total Abatement 2025-2030 [Mt]": [20.0, 30.0, 40.0, 50.0, 60.0, 70.0],
+      "reading": "Monotone-rising price as the cap tightens: at cap 180 only 20 Mt of abatement is needed (cheap, ~21.8 USD); at cap 130 the required 70 Mt climbs the steeper part of the aggregate MAC (~76.4 USD). A pure textbook competitive cap-and-trade path."
+    }
+  },
+  "scenarios": [
+    {
+      "name": "Competitive declining cap",
+      "model_approach": "competitive",
+      "years": [
+        {
+          "year": "2025",
+          "total_cap": 180.0,
+          "auction_mode": "derive_from_cap",
+          "price_upper_bound": 1000.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Power", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 50.0, "cost_slope": 2.0},
+            {"name": "Steel", "initial_emissions": 60.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 30.0, "cost_slope": 4.0},
+            {"name": "Cement", "initial_emissions": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 15.0, "cost_slope": 6.0}
+          ]
+        },
+        {
+          "year": "2026",
+          "total_cap": 170.0,
+          "auction_mode": "derive_from_cap",
+          "price_upper_bound": 1000.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Power", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 50.0, "cost_slope": 2.0},
+            {"name": "Steel", "initial_emissions": 60.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 30.0, "cost_slope": 4.0},
+            {"name": "Cement", "initial_emissions": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 15.0, "cost_slope": 6.0}
+          ]
+        },
+        {
+          "year": "2027",
+          "total_cap": 160.0,
+          "auction_mode": "derive_from_cap",
+          "price_upper_bound": 1000.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Power", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 50.0, "cost_slope": 2.0},
+            {"name": "Steel", "initial_emissions": 60.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 30.0, "cost_slope": 4.0},
+            {"name": "Cement", "initial_emissions": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 15.0, "cost_slope": 6.0}
+          ]
+        },
+        {
+          "year": "2028",
+          "total_cap": 150.0,
+          "auction_mode": "derive_from_cap",
+          "price_upper_bound": 1000.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Power", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 50.0, "cost_slope": 2.0},
+            {"name": "Steel", "initial_emissions": 60.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 30.0, "cost_slope": 4.0},
+            {"name": "Cement", "initial_emissions": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 15.0, "cost_slope": 6.0}
+          ]
+        },
+        {
+          "year": "2029",
+          "total_cap": 140.0,
+          "auction_mode": "derive_from_cap",
+          "price_upper_bound": 1000.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Power", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 50.0, "cost_slope": 2.0},
+            {"name": "Steel", "initial_emissions": 60.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 30.0, "cost_slope": 4.0},
+            {"name": "Cement", "initial_emissions": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 15.0, "cost_slope": 6.0}
+          ]
+        },
+        {
+          "year": "2030",
+          "total_cap": 130.0,
+          "auction_mode": "derive_from_cap",
+          "price_upper_bound": 1000.0,
+          "banking_allowed": false,
+          "participants": [
+            {"name": "Power", "initial_emissions": 100.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 50.0, "cost_slope": 2.0},
+            {"name": "Steel", "initial_emissions": 60.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 30.0, "cost_slope": 4.0},
+            {"name": "Cement", "initial_emissions": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 500.0, "abatement_type": "linear", "max_abatement": 15.0, "cost_slope": 6.0}
+          ]
+        }
+      ]
+    }
+  ]
+}

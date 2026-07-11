@@ -1,0 +1,119 @@
+{
+  "description": {
+    "title": "Investment-in-cycle: an irreversible clean-tech adoption that closes inside the joint loop",
+    "economic_framing": "Two coupled carbon markets A<->B (as in joint_two_market.json). A compliance firm in market A can make an IRREVERSIBLE investment in a cheaper abatement technology (block cost L=40 vs the incumbent H=100). Whether it pays to invest depends on market A's allowance price, which in turn depends on the COUPLED market B's price through the cross-market cost link. So the adoption decision is nested INSIDE the joint price fixed point: the firm's Dixit-Pindyck trigger is evaluated on each outer sweep against the current neighbour-driven price, and once it crosses it adopts and stays adopted (a monotone floor).",
+    "mechanism": "trigger_mode='break_even' (M=1) so the option adopts once market A's delivered price reaches theta=130 USD/tCO2. On the cold seed (back-link B->A cut) A only sees the incumbent block, so its seed price is H=100 < theta and it does NOT adopt on sweep 1. As B's price feeds back into A, A's un-adopted joint price rises toward 157.1 > theta, so A crosses the trigger on a LATER sweep, DRIVEN by the coupled market -- the genuine investment-in-cycle witness. After adoption the joint fixed point falls to the ADOPTED prices (A depresses its own price below theta -> ex-post regret, which the irreversibility floor permits, docs/joint-equilibrium.md section 4).",
+    "hand_solution": "phi=0.4 both directions, c_B=80. Un-adopted joint fixed point (incumbent H=100): P_A=157.14, P_B=142.86. Adopted joint fixed point (option L=40): P_A=85.71, P_B=114.29. theta=130 sits between H (seed) and the un-adopted P_A, so the firm adopts via the coupled feedback and the market lands on the ADOPTED pair.",
+    "expected_output": {
+      "P_A [USD/tCO2]": 85.71428571428571,
+      "P_B [USD/tCO2]": 114.28571428571428,
+      "Joint Converged": 1.0,
+      "Joint Cycle Detected": 0.0,
+      "Investment Adoptions (market A)": "[{\"adoption_year\":\"2030\",\"participant\":\"A_firm\",\"technology\":\"optA\"}]",
+      "reading": "Investment bites: the joint price pair moves from the un-adopted (157.1, 142.9) to the adopted (85.7, 114.3) because A's firm crossed its Dixit-Pindyck trigger on a neighbour-driven sweep. The adoption is recorded and the loop converges (Joint Converged=1) with no cycle."
+    }
+  },
+  "scenarios": [
+    {
+      "name": "Coupled carbon markets with investment-in-cycle",
+      "markets": [
+        {
+          "market_id": "A",
+          "price_unit": "USD/tCO2",
+          "model_approach": "competitive",
+          "discount_rate": 0.055,
+          "investment_feedback_enabled": true,
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 80.0,
+              "auction_mode": "explicit",
+              "auction_offered": 80.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {
+                  "name": "A_firm",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 100000.0,
+                  "abatement_type": "threshold",
+                  "threshold_cost": 999.0,
+                  "max_abatement": 0.0,
+                  "technology_options": [
+                    {
+                      "name": "baseA",
+                      "abatement_type": "threshold",
+                      "threshold_cost": 100.0,
+                      "initial_emissions": 100.0,
+                      "max_abatement": 40.0,
+                      "free_allocation_ratio": 0.0,
+                      "penalty_price": 100000.0,
+                      "max_activity_share": 1.0
+                    },
+                    {
+                      "name": "optA",
+                      "abatement_type": "threshold",
+                      "threshold_cost": 40.0,
+                      "initial_emissions": 100.0,
+                      "max_abatement": 40.0,
+                      "free_allocation_ratio": 0.0,
+                      "penalty_price": 100000.0,
+                      "max_activity_share": 1.0,
+                      "investment_trigger": {
+                        "break_even_price": 130.0,
+                        "payout_yield": 0.03,
+                        "trigger_mode": "break_even"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": "B",
+          "price_unit": "USD/tCO2",
+          "model_approach": "competitive",
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 80.0,
+              "auction_mode": "explicit",
+              "auction_offered": 80.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {
+                  "name": "B_firm",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 100000.0,
+                  "abatement_type": "threshold",
+                  "threshold_cost": 999.0,
+                  "max_abatement": 0.0,
+                  "technology_options": [
+                    {
+                      "name": "blockB",
+                      "abatement_type": "threshold",
+                      "threshold_cost": 80.0,
+                      "initial_emissions": 100.0,
+                      "max_abatement": 40.0,
+                      "free_allocation_ratio": 0.0,
+                      "penalty_price": 100000.0,
+                      "max_activity_share": 1.0
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "links": [
+        {"from_market": "B", "to_market": "A", "channel": "mac_cost", "phi": 0.4, "phi_unit": "USD/tCO2 per USD/tCO2", "target_participants": ["A_firm"], "target_technologies": ["baseA", "optA"]},
+        {"from_market": "A", "to_market": "B", "channel": "mac_cost", "phi": 0.4, "phi_unit": "USD/tCO2 per USD/tCO2", "target_participants": ["B_firm"], "target_technologies": ["blockB"]}
+      ],
+      "joint_solver": {"relaxation": 0.5, "tolerance": 1e-12, "max_iterations": 200}
+    }
+  ]
+}

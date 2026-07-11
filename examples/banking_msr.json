@@ -1,0 +1,83 @@
+{
+  "description": {
+    "title": "Rubin/Schennach banking equilibrium shaped by a bank-threshold Market Stability Reserve",
+    "economic_framing": "A cap-and-trade market with intertemporal banking (Rubin 1996 / Schennach 2000): firms carry allowances across years so the price path is a no-arbitrage ramp. The market opens with a large banked surplus (40 Mt) that would otherwise depress early prices. A bank-threshold Market Stability Reserve (MSR) withholds auction volume whenever the circulating bank exceeds an upper threshold and releases when it falls below a lower one -- a quantity-based automatic stabiliser. Two otherwise-identical scenarios (MSR off vs on) isolate the reserve's effect on the price path.",
+    "citation": "Banking equilibrium: Rubin, J. (1996) JEEM 31(3); Schennach, S. (2000) JEEM 40(3). MSR mechanism: bank-threshold SupplyRule inside the banking fixed point (modules/msr/backend/rules.py ThresholdMSRSupplyRule).",
+    "mechanism": "Inside the banking fixed point the MSR supply rule replaces each year's circulating supply with free_alloc + max(0, auction - withheld + released): withheld = withhold_rate*auction when begin_bank > upper_threshold (25 Mt), released = min(release_rate, pool) when begin_bank < lower_threshold (8 Mt). The rule reads only the LAGGED begin-of-year bank (never same-iteration outcomes), and the solver re-invokes it each fixed-point iteration on a fresh reserve pool. Withholding the early surplus tightens supply and lifts the front of the price path relative to the no-MSR banking ramp.",
+    "expected_output": {
+      "Equilibrium Carbon Price no-MSR 2026-2030 [USD/tCO2]": [3.393277, 3.562941, 3.741088, 3.928143, 4.12455],
+      "Equilibrium Carbon Price with-MSR 2026-2030 [USD/tCO2]": [13.776707, 14.465542, 15.188819, 15.94826, 16.745673],
+      "MSR Withheld with-MSR 2026-2030 [Mt]": [19.0, 17.6, 0.0, 0.0, 0.0],
+      "MSR Released with-MSR 2026-2030 [Mt]": [0.0, 0.0, 0.0, 0.0, 6.0],
+      "MSR Reserve Pool with-MSR 2026-2030 [Mt]": [19.0, 36.6, 36.6, 36.6, 30.6],
+      "reading": "Both scenarios ramp at (1+r)=1.05/yr (a Hotelling banking window). Without the MSR the 40 Mt starting surplus keeps the front of the curve near 3.4 USD. The bank-threshold MSR withholds 19.0 then 17.6 Mt while the bank sits above its 25 Mt upper threshold, building a 36.6 Mt reserve and tightening circulating supply, so the with-MSR price path sits roughly 4x higher (~13.8 -> 16.7 USD) and releases 6.0 Mt in 2030 once the bank falls below the 8 Mt lower threshold. The reserve visibly shapes the price path."
+    }
+  },
+  "scenarios": [
+    {
+      "name": "Banking (no MSR)",
+      "model_approach": "banking",
+      "discount_rate": 0.05,
+      "banking_initial_bank": 40.0,
+      "banking_strict_no_arbitrage": false,
+      "msr_enabled": false,
+      "years": [
+        {"year": "2026", "total_cap": 95.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 55.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]},
+        {"year": "2027", "total_cap": 88.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 54.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 39.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]},
+        {"year": "2028", "total_cap": 81.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 53.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 38.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]},
+        {"year": "2029", "total_cap": 74.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 52.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 37.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]},
+        {"year": "2030", "total_cap": 67.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 51.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 36.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]}
+      ]
+    },
+    {
+      "name": "Banking + bank-threshold MSR",
+      "model_approach": "banking",
+      "discount_rate": 0.05,
+      "banking_initial_bank": 40.0,
+      "banking_strict_no_arbitrage": false,
+      "msr_enabled": true,
+      "msr_mode": "bank_threshold",
+      "msr_upper_threshold": 25.0,
+      "msr_lower_threshold": 8.0,
+      "msr_withhold_rate": 0.2,
+      "msr_release_rate": 6.0,
+      "years": [
+        {"year": "2026", "total_cap": 95.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 55.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 40.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]},
+        {"year": "2027", "total_cap": 88.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 54.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 39.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]},
+        {"year": "2028", "total_cap": 81.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 53.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 38.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]},
+        {"year": "2029", "total_cap": 74.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 52.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 37.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]},
+        {"year": "2030", "total_cap": 67.0, "auction_mode": "derive_from_cap", "banking_allowed": false, "price_upper_bound": 100000.0, "participants": [
+          {"name": "Power", "initial_emissions": 51.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 40.0, "cost_slope": 3.0},
+          {"name": "Industry", "initial_emissions": 36.0, "free_allocation_ratio": 0.0, "penalty_price": 100000.0, "abatement_type": "linear", "max_abatement": 25.0, "cost_slope": 5.0}
+        ]}
+      ]
+    }
+  ]
+}

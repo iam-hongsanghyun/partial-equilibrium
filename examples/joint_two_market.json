@@ -1,0 +1,100 @@
+{
+  "description": {
+    "title": "Joint equilibrium of two coupled carbon markets (THE flagship, converging)",
+    "economic_framing": "Two carbon markets, ETS_A and ETS_B, that share abatement technologies and fuel supply chains, so each market's marginal abatement cost RISES with the OTHER market's allowance price. This mutual dependence makes the two prices a genuine JOINT (simultaneous) equilibrium: neither market is exogenous to the other, so the price pair is found by a fixed-point iteration over the coupled system rather than solved once in sequence.",
+    "mechanism": "Each market is an interior single-block threshold market that pins at its (link-shifted) block cost, so own-price pass-through s_m = 1 and each clears at P_m = c_m + phi_m * P_neighbour. Two mac_cost links close the loop: B->A carries phi_A=0.4 * P_B into A, A->B carries phi_B=0.5 * P_A into B. Loop gain g = phi_A * phi_B = 0.20 (< 1), so the joint solver's damped Gauss-Seidel converges. This mirrors anchor J1 of docs/joint-equilibrium.md.",
+    "hand_solution": "P_A = (c_A + phi_A*c_B)/(1 - g) = (100 + 0.4*80)/0.8 = 165.0 USD/tCO2; P_B = (c_B + phi_B*c_A)/(1 - g) = (80 + 0.5*100)/0.8 = 162.5 USD/tCO2. One Gauss-Seidel sweep does NOT reach this (the one-way seed is P_A=100, P_B=130); iteration is required.",
+    "joint_solver": "relaxation (w) = 0.5 damped Gauss-Seidel; tolerance 1e-12 (tighter than the 1e-4 default so the stopped iterate matches the hand fixed point to 1e-6); max_iterations 200.",
+    "expected_output": {
+      "P_A [USD/tCO2]": 165.0,
+      "P_B [USD/tCO2]": 162.5,
+      "Joint Converged": 1.0,
+      "Joint Cycle Detected": 0.0,
+      "reading": "The joint solver reaches the hand fixed point (165.0, 162.5) and stamps Joint Converged=1 with no cycle. Each cyclic-SCC market row carries the four Joint* diagnostic columns."
+    }
+  },
+  "scenarios": [
+    {
+      "name": "Coupled carbon markets (converging)",
+      "markets": [
+        {
+          "market_id": "A",
+          "price_unit": "USD/tCO2",
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 80.0,
+              "auction_mode": "explicit",
+              "auction_offered": 80.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {
+                  "name": "A_firm",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 100000.0,
+                  "abatement_type": "threshold",
+                  "threshold_cost": 999.0,
+                  "max_abatement": 0.0,
+                  "technology_options": [
+                    {
+                      "name": "blockA",
+                      "abatement_type": "threshold",
+                      "threshold_cost": 100.0,
+                      "initial_emissions": 100.0,
+                      "max_abatement": 40.0,
+                      "free_allocation_ratio": 0.0,
+                      "penalty_price": 100000.0,
+                      "max_activity_share": 1.0
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "market_id": "B",
+          "price_unit": "USD/tCO2",
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 80.0,
+              "auction_mode": "explicit",
+              "auction_offered": 80.0,
+              "price_upper_bound": 100000.0,
+              "participants": [
+                {
+                  "name": "B_firm",
+                  "initial_emissions": 100.0,
+                  "free_allocation_ratio": 0.0,
+                  "penalty_price": 100000.0,
+                  "abatement_type": "threshold",
+                  "threshold_cost": 999.0,
+                  "max_abatement": 0.0,
+                  "technology_options": [
+                    {
+                      "name": "blockB",
+                      "abatement_type": "threshold",
+                      "threshold_cost": 80.0,
+                      "initial_emissions": 100.0,
+                      "max_abatement": 40.0,
+                      "free_allocation_ratio": 0.0,
+                      "penalty_price": 100000.0,
+                      "max_activity_share": 1.0
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "links": [
+        {"from_market": "B", "to_market": "A", "channel": "mac_cost", "phi": 0.4, "phi_unit": "USD/tCO2 per USD/tCO2", "target_participants": ["A_firm"], "target_technologies": ["blockA"]},
+        {"from_market": "A", "to_market": "B", "channel": "mac_cost", "phi": 0.5, "phi_unit": "USD/tCO2 per USD/tCO2", "target_participants": ["B_firm"], "target_technologies": ["blockB"]}
+      ],
+      "joint_solver": {"relaxation": 0.5, "tolerance": 1e-12, "max_iterations": 200}
+    }
+  ]
+}
