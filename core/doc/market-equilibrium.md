@@ -1,4 +1,8 @@
-# Market Equilibrium Solver
+# Core — Market Equilibrium Solver Reference
+
+*(Moved from `docs/market-equilibrium.md` — WO-17 doc fold.)*
+
+## Market Equilibrium Solver
 
 **File:** `src/ets/market.py`
 
@@ -248,6 +252,6 @@ The `solve_equilibrium()` method returns:
 
 ## See also
 
-- [Algorithm Overview](algorithm-overview.md) — where this layer fits in the full simulation
+- [Algorithm Overview](../../docs/algorithm-overview.md) — where this layer fits in the full simulation
 - [MAC & Abatement Models](mac-abatement.md) — how participant demand is computed
 - [Multi-Year Simulation](multi-year-simulation.md) — how equilibrium feeds into the next year

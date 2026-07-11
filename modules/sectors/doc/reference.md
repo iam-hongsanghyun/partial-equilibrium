@@ -1,4 +1,8 @@
-# Sector Configuration
+# Sectors — Reference
+
+*(Moved from `docs/sector-config.md` — WO-17 doc fold.)*
+
+## Sector Configuration
 
 **Files:** `src/ets/config_io/builder.py` (sector derivation block, `_normalize_sectors`), `src/ets/participant/models.py` (participant fields)
 
@@ -113,7 +117,7 @@ Priority 3:           free_allocation_trajectories[] (per-participant ratio traj
 Priority 4 (highest): OBA override (production_output × benchmark_emission_intensity)
 ```
 
-OBA always wins when its conditions are met. See [OBA Allocation](oba-allocation.md) for details.
+OBA always wins when its conditions are met. See [OBA Allocation](../../oba/doc/reference.md) for details.
 
 ---
 
@@ -343,8 +347,8 @@ Mixing sector-enabled and sector-disabled scenarios in the same config is suppor
 
 ## See also
 
-- [Data Model & Config Schema](data-model.md) — full field reference for `sectors[]`, `sector_group`, `sector_allocation_share`
-- [OBA Allocation](oba-allocation.md) — OBA override that follows sector derivation
-- [Multi-Year Simulation](multi-year-simulation.md) — how sector caps are re-interpolated each year
-- [Algorithm Overview](algorithm-overview.md) — sector derivation within the Layer 3 build pipeline
+- [Data Model & Config Schema](../../../core/doc/data-model.md) — full field reference for `sectors[]`, `sector_group`, `sector_allocation_share`
+- [OBA Allocation](../../oba/doc/reference.md) — OBA override that follows sector derivation
+- [Multi-Year Simulation](../../../core/doc/multi-year-simulation.md) — how sector caps are re-interpolated each year
+- [Algorithm Overview](../../../docs/algorithm-overview.md) — sector derivation within the Layer 3 build pipeline
 - `examples/k_ets_subsector_decomposition.json` — four-sector sub-sector decomposition example

@@ -365,7 +365,7 @@ relax that closure boundary:
 - **Option A — price-elastic baseline** (in-engine): carbon-intensive activity
   responds to the carbon price *within* clearing, so price and activity are solved
   jointly. Reduced-form, own-price; stays partial equilibrium.
-  See [`docs/feedback-price-elastic-baseline.md`](docs/feedback-price-elastic-baseline.md).
+  See [`modules/elastic_baseline/doc/reference.md`](modules/elastic_baseline/doc/reference.md).
 - **Option B — soft-link coupling** (outer loop): iterate the ETS to a joint
   equilibrium with a purpose-built external model (energy-system / CGE / DSGE) via
   a pluggable adapter — general-equilibrium feedback without embedding a GE model.
@@ -392,7 +392,7 @@ whole path solve — converging in at most `N_flagged + 1` iterations
 (monotone adoption, no price relaxation, no tolerance). See
 [`docs/algorithm-overview.md`, "Endogenous Investment Feedback (Phase 1)"](docs/algorithm-overview.md#endogenous-investment-feedback-phase-1)
 for the trigger math, the outer-loop pseudocode, and the termination theorem,
-and [`docs/invest-feedback-spec.md`](docs/invest-feedback-spec.md) for the
+and [`modules/endogenous_investment/doc/spec.md`](modules/endogenous_investment/doc/spec.md) for the
 binding economic spec.
 
 Enable it with `investment_feedback_enabled: true` on the scenario and an
@@ -779,23 +779,23 @@ walkthrough above, via `configure.command`.
 | `docs/blocks-graph-plan.md` | Block catalogue, graph schema, compiler, API contract for the composer and manifest endpoints |
 | `docs/blocks-composition-rules.md` | Graph-validation rules R1–R32 and engine findings F1–F6 |
 | `docs/algorithm-overview.md` | Solver math (competitive, Hotelling, Nash), MSR, CBAM, validation rules, execution flow |
-| `docs/data-model.md` | Every config field — type, default, validation, example |
-| `docs/multi-year-simulation.md` | Banking, borrowing, expectation rules, BAU trajectory, grid factor trajectory, sector dynamics, auction revenue decomposition |
-| `docs/oba-allocation.md` | Output-Based Allocation concept, formula, override hierarchy, worked steel example |
-| `docs/carbon-cap-rule.md` | Carbon Cap Rule (Benmir, Roman & Taschini 2025) — adaptive Taylor-rule cap, formula, config, worked example |
-| `docs/feedback-price-elastic-baseline.md` | Feedback Option A — price-elastic baseline (within-clearing demand destruction), formula, config, worked example |
+| `core/doc/data-model.md` | Every config field — type, default, validation, example |
+| `core/doc/multi-year-simulation.md` | Banking, borrowing, expectation rules, BAU trajectory, grid factor trajectory, sector dynamics, auction revenue decomposition |
+| `modules/oba/doc/reference.md` | Output-Based Allocation concept, formula, override hierarchy, worked steel example |
+| `modules/ccr/doc/reference.md` | Carbon Cap Rule (Benmir, Roman & Taschini 2025) — adaptive Taylor-rule cap, formula, config, worked example |
+| `modules/elastic_baseline/doc/reference.md` | Feedback Option A — price-elastic baseline (within-clearing demand destruction), formula, config, worked example |
 | `docs/feedback-coupling.md` | Feedback Option B — soft-link coupling loop, adapter contract, writing your own external model |
 | `docs/tutorials/index.html` | Tutorials landing page — links the walkthrough and the cookbook |
 | `docs/tutorials/build-your-first-scenario.html` | Follow-along HTML walkthrough — base PE → MSR → CCR → feedback A → feedback B |
 | `docs/tutorials/scenario-cookbook.html` | ~20 ready-to-run recipes grouped by theme, each mapped to an `examples/` file |
 | `docs/tutorials/practitioner-training.html` | Role-based training course — six use-case modules (compliance, policy, trading, strategy, feedback, calibration) + feature × use-case matrix |
-| `docs/sector-config.md` | Sector-level caps, auction share derivation, per-participant allocation from sector pool, worked two-participant example |
-| `docs/analysis-tools.md` | Calibration, batch runner, CSV import, narrative — APIs, request/response schemas, algorithms |
-| `docs/mac-abatement.md` | Linear, piecewise, and threshold MAC models with cost derivations |
-| `docs/market-equilibrium.md` | Brent's method details, auction rules, bracketing procedure |
-| `docs/technology-transition.md` | Technology options, SLSQP portfolio optimisation, fixed-cost switching |
+| `modules/sectors/doc/reference.md` | Sector-level caps, auction share derivation, per-participant allocation from sector pool, worked two-participant example |
+| `core/doc/analysis-tools.md` | Calibration, batch runner, CSV import, narrative — APIs, request/response schemas, algorithms |
+| `core/doc/mac-abatement.md` | Linear, piecewise, and threshold MAC models with cost derivations |
+| `core/doc/market-equilibrium.md` | Brent's method details, auction rules, bracketing procedure |
+| `modules/endogenous_investment/doc/reference.md` | Technology options, SLSQP portfolio optimisation, fixed-cost switching |
 | `docs/k-msr-condensed.md`, `docs/k-msr-vs-repo-comparison.md` | K-MSR (decree-mode) paper reproduction — condensed source translation and repo-vs-paper comparison |
-| `docs/invest-feedback-spec.md`, `docs/invest-feedback-plan.md` | Endogenous investment feedback (Phase 1) — binding economic spec (trigger, equilibrium concept, termination theorem) and architecture/work-order history; see also [Investment Feedback](#investment-feedback) and `docs/algorithm-overview.md` |
+| `modules/endogenous_investment/doc/spec.md`, `docs/invest-feedback-plan.md` | Endogenous investment feedback (Phase 1) — binding economic spec (trigger, equilibrium concept, termination theorem) and architecture/work-order history; see also [Investment Feedback](#investment-feedback) and `docs/algorithm-overview.md` |
 
 ---
 
@@ -873,10 +873,10 @@ docs/                 Extended documentation
 ## Limitations
 
 - **Single commodity:** Only CO₂-equivalent emissions are modelled. Multi-pollutant general-equilibrium feedback is captured only via the optional [soft-link coupling](docs/feedback-coupling.md) (feedback B) to an external model.
-- **Static abatement curves:** MAC parameters do not evolve endogenously. Technological learning curves must be specified explicitly via trajectories. (MAC blocks may include negative-cost "no-regret" measures — see [docs/mac-abatement.md](docs/mac-abatement.md).)
+- **Static abatement curves:** MAC parameters do not evolve endogenously. Technological learning curves must be specified explicitly via trajectories. (MAC blocks may include negative-cost "no-regret" measures — see [core/doc/mac-abatement.md](core/doc/mac-abatement.md).)
 - **No financial intermediaries:** Banks, brokers, and speculative traders are not modelled. Banking is purely a compliance firm decision.
-- **Partial equilibrium by design:** The core engine clears the allowance market with activity, energy, and macro conditions exogenous. Two opt-in channels relax this: [price-elastic baseline](docs/feedback-price-elastic-baseline.md) (feedback A — own-price activity response, still partial equilibrium) and [soft-link coupling](docs/feedback-coupling.md) (feedback B — joint equilibrium with an external energy/CGE/DSGE model). Both default off.
-- **Endogenous investment feedback covers competitive and banking only (v1):** [Investment feedback](#investment-feedback) wraps the competitive and Rubin/Schennach banking path solves; scenarios under `model_approach: "hotelling"`, `"nash_cournot"`, or `"all"` cannot flag `technology_options[]` for adoption yet (a flagged option under those approaches raises a config error rather than silently ignoring the flag). The partial-credibility interior mapping σ_eff(q) = (1−q)·σ is a documented modelling choice, not a paper result (see [`docs/invest-feedback-spec.md`](docs/invest-feedback-spec.md) D2.1).
+- **Partial equilibrium by design:** The core engine clears the allowance market with activity, energy, and macro conditions exogenous. Two opt-in channels relax this: [price-elastic baseline](modules/elastic_baseline/doc/reference.md) (feedback A — own-price activity response, still partial equilibrium) and [soft-link coupling](docs/feedback-coupling.md) (feedback B — joint equilibrium with an external energy/CGE/DSGE model). Both default off.
+- **Endogenous investment feedback covers competitive and banking only (v1):** [Investment feedback](#investment-feedback) wraps the competitive and Rubin/Schennach banking path solves; scenarios under `model_approach: "hotelling"`, `"nash_cournot"`, or `"all"` cannot flag `technology_options[]` for adoption yet (a flagged option under those approaches raises a config error rather than silently ignoring the flag). The partial-credibility interior mapping σ_eff(q) = (1−q)·σ is a documented modelling choice, not a paper result (see [`modules/endogenous_investment/doc/spec.md`](modules/endogenous_investment/doc/spec.md) D2.1).
 - **Calibration is single-scenario:** The `/api/calibrate` endpoint calibrates `abatement_cost_slope` for linear MAC only; piecewise blocks are not calibrated automatically.
 - **Nash-Cournot convergence:** The Jacobi iteration may not converge for all market configurations; the solver logs a warning and uses its best approximation if the iteration limit is reached.
 - **Integer compliance:** The model operates in continuous tonnes; compliance is not restricted to integer lots.

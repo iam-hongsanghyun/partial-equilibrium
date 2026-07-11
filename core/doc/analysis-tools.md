@@ -1,4 +1,8 @@
-# Analysis Tools
+# Core — Analysis Tools Reference
+
+*(Moved from `docs/analysis-tools.md` — WO-17 doc fold.)*
+
+## Analysis Tools
 
 **Files:** `src/ets/analysis/calibration.py`, `src/ets/analysis/batch.py`, `src/ets/analysis/csv_import.py`, `src/ets/analysis/narrative.py`
 
@@ -521,9 +525,9 @@ Korea if KAU prices equalled EUA levels. Domestic auction revenue totals
 
 ## See also
 
-- [Algorithm Overview](algorithm-overview.md) — core simulation algorithms that these tools wrap
+- [Algorithm Overview](../../docs/algorithm-overview.md) — core simulation algorithms that these tools wrap
 - [Data Model & Config Schema](data-model.md) — all config fields referenced by CSV import and batch runner
-- [OBA Allocation](oba-allocation.md) — OBA fields supported in CSV import
+- [OBA Allocation](../../modules/oba/doc/reference.md) — OBA fields supported in CSV import
 - [Multi-Year Simulation](multi-year-simulation.md) — the simulation engine that calibration and batch invoke
 - `examples/k_ets_calibration_request.json` — ready-to-POST calibration example
 - `examples/k_ets_batch_eua_sweep.json` — ready-to-POST batch sweep example (5 EUA × 2 floor = 10 runs)

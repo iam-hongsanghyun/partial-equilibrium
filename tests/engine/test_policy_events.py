@@ -226,7 +226,7 @@ def test_splice_carries_bank_and_decree_reserve_across_segments():
 
 
 def test_bank_threshold_pool_resets_per_segment_while_decree_carries():
-    """Requirement (c), docs/banking-equilibrium.md:117-120: a bank_threshold
+    """Requirement (c), modules/banking/doc/reference.md:117-120: a bank_threshold
     pool is NOT carried state — the rule reconstructs an empty pool each
     segment (R7: only a decree owns msr_initial_reserve_mt, so the value the
     splice stamps is ignored) — whereas the decree in the test above carries

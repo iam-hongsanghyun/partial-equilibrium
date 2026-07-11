@@ -29,7 +29,7 @@ no-ops → R8, R9, R16.
 `transmission.py:246-263` solves both components floor-stripped
 (`_strip_floors`, `:98-109`) and applies `max(blend, floor)` last — the
 paper's transmission-immunity property; a drawn graph must never reorder it
-(docstring `:43-56`; `docs/forward-transmission.md:27-42`).
+(docstring `:43-56`; `modules/transmission/doc/reference.md:27-42`).
 
 **F4 — CORRECT (documented): supply rules and the state they read live on the
 same side of the banking solver boundary.** `banking.py:622-650` iterates
@@ -77,7 +77,7 @@ exposed as a compare button, not a block.
 | OBA | `production_output > 0` AND `benchmark_emission_intensity > 0` AND `initial_emissions > 0` together (`builder.py:417-423`) | — | overrides sector-derived and manual ratios; capped at 100% |
 | Sectors | every non-empty `sector_group` names a defined sector (`builder.py:140-148`) | — | sector-derived cap/auction override trajectories (`builder.py:468-474`) |
 | CBAM | a reference price: `eua_price` / `eua_prices` / jurisdiction `reference_price` (`results.py:46-58`) | — | reporting only (F6) |
-| Policy events | `announced` ∈ scenario years (`events.py:92-96`) | — | carries bank + decree reserve across splices (`events.py:142-143, 171-196`); bank_threshold pool resets per segment (`docs/banking-equilibrium.md:117-120`) |
+| Policy events | `announced` ∈ scenario years (`events.py:92-96`) | — | carries bank + decree reserve across splices (`events.py:142-143, 171-196`); bank_threshold pool resets per segment (`modules/banking/doc/reference.md:117-120`) |
 | Hoarding | `model_approach = banking` (`banking.py:130-141, 245-267`) | others: decorative | usually needs `banking_strict_no_arbitrage: false` |
 
 ## 2. Ordering semantics
@@ -167,7 +167,7 @@ Market mechanism / floors / ceilings:
 Expectations / timing / diagnostics:
 - **R28 WARNING** — expectations block attached to banking/hotelling/λ-overlay: not consumed (`banking.py:661`; `hotelling.py:98`; `transmission.py:152-153`).
 - **R29 WARNING (informational)** — `perfect_foresight` + MSR/CCR: expectations formed on the rule-free path (`simulation.py:83-90`); anticipated-policy pricing requires the banking block.
-- **R30 ERROR** — policy event `announced` must be a scenario year (`events.py:92-96`); WARNING when a splice crosses a bank_threshold MSR (`docs/banking-equilibrium.md:117-120`).
+- **R30 ERROR** — policy event `announced` must be a scenario year (`events.py:92-96`); WARNING when a splice crosses a bank_threshold MSR (`modules/banking/doc/reference.md:117-120`).
 - **R31 WARNING** — CBAM with all reference prices = 0 (`results.py:46-58`); GUI-level: no edge from CBAM into price formation (F6).
 - **R32 WARNING** — OBA fields half-set (`builder.py:417-423`): override never fires.
 - **R33 ERROR** — `endogenous_investment` requires competitive_clearing or rubin_schennach_banking price formation; v1 approach coverage is competitive + banking only (`docs/invest-feedback-spec.md` D1.3; `docs/invest-feedback-plan.md` "v1 approach coverage" — other approaches + the feature raise a loud `ValueError` at normalize).

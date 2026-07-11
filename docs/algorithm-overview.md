@@ -595,7 +595,7 @@ The CCR is applied only in the **competitive** model path, and only on the **fin
 
 Output columns added when enabled: `CCR Cap Adjustment` (ΔQ_t, Mt), `CCR Emissions Deviation` ($(e_{t-1} - \bar{e})/\bar{e}$), `CCR Cost Deviation` ($(z_{t-1} - \bar{z})/\bar{z}$).
 
-See [Carbon Cap Rule](carbon-cap-rule.md) for full parameter guidance, calibration advice, and a worked example.
+See [Carbon Cap Rule](../modules/ccr/doc/reference.md) for full parameter guidance, calibration advice, and a worked example.
 
 ### Relationship to the MSR
 
@@ -651,7 +651,7 @@ The multiplier acts as a **restoring force toward $P_\mathrm{ref}$**: when $P > 
 
 Both default to neutral — every existing scenario is unchanged. The per-participant `Initial Emissions` column in results reports $E_0 \cdot m(P^*)$, i.e. the price-scaled realised baseline.
 
-See [Feedback Option A — Price-Elastic Baseline](feedback-price-elastic-baseline.md) for a worked example and auction-mode guidance.
+See [Feedback Option A — Price-Elastic Baseline](../modules/elastic_baseline/doc/reference.md) for a worked example and auction-mode guidance.
 
 ---
 
@@ -729,7 +729,7 @@ See [Feedback Option B — Soft-Link Coupling](feedback-coupling.md) for the ful
 
 **Files:** `src/ets/core/investment.py` (Dixit–Pindyck trigger math, T0), `src/ets/engine/feedback.py` (the outer adoption loop host), `src/ets/features/endogenous_investment/plugin.py` (config door), `rule.py` (`InvestmentRule`, the `PathFeedback` implementation), `vintage.py` (availability gating)
 
-**Binding spec:** [`invest-feedback-spec.md`](invest-feedback-spec.md) (ets-lead-economist design gate). Architecture: [`invest-feedback-plan.md`](invest-feedback-plan.md).
+**Binding spec:** [`invest-feedback-spec.md`](../modules/endogenous_investment/doc/spec.md) (ets-lead-economist design gate). Architecture: [`invest-feedback-plan.md`](invest-feedback-plan.md).
 
 **Enabled by:** scenario `investment_feedback_enabled: true` **and** at least one `technology_options[]` entry carrying a non-empty `investment_trigger` sub-dict — presence of the sub-dict IS the flag. Both-or-neither is a loud `ValueError`, at config-build time and again at solve time (spec D3.2/D6): a flagged option with the gate off, or the gate on with nothing flagged anywhere in a year, never silently no-ops. `model_approach` must be `"competitive"` or `"banking"` — v1 approach coverage (spec D1.3); `"hotelling"`, `"nash_cournot"`, and `"all"` raise.
 
@@ -750,7 +750,7 @@ The price signal is the **delivered** spot path (post-overlay, floor-clipped, cl
 
 $$ P^*_j(t) = M_j\,\theta_j(t), \qquad M_j = \frac{\beta_j}{\beta_j - 1} $$
 
-with $\beta_j > 1$ the positive root of the Dixit–Pindyck fundamental quadratic (`core/investment.py:beta_positive_root`, see also ["Forward transmission (λ) and the Dixit–Pindyck investment trigger"](forward-transmission.md)):
+with $\beta_j > 1$ the positive root of the Dixit–Pindyck fundamental quadratic (`core/investment.py:beta_positive_root`, see also ["Forward transmission (λ) and the Dixit–Pindyck investment trigger"](../modules/transmission/doc/reference.md)):
 
 $$ \tfrac{1}{2}\sigma_{\text{eff},j}^2\,\beta(\beta-1) + (r_j - y_j)\,\beta - r_j = 0 $$
 
@@ -1352,16 +1352,16 @@ In practice, all three solvers complete in under 1–2 seconds for typical K-ETS
 
 ## Related Documents
 
-- [Data Model & Configuration Schema](data-model.md)
-- [Multi-Year Simulation](multi-year-simulation.md)
-- [Output-Based Allocation](oba-allocation.md)
-- [Sector Configuration](sector-config.md)
-- [Analysis Tools](analysis-tools.md)
-- [MAC & Abatement Models](mac-abatement.md)
-- [Market Equilibrium Solver](market-equilibrium.md)
-- [Technology Transition](technology-transition.md)
-- [Carbon Cap Rule](carbon-cap-rule.md)
-- [Feedback Option A — Price-Elastic Baseline](feedback-price-elastic-baseline.md)
+- [Data Model & Configuration Schema](../core/doc/data-model.md)
+- [Multi-Year Simulation](../core/doc/multi-year-simulation.md)
+- [Output-Based Allocation](../modules/oba/doc/reference.md)
+- [Sector Configuration](../modules/sectors/doc/reference.md)
+- [Analysis Tools](../core/doc/analysis-tools.md)
+- [MAC & Abatement Models](../core/doc/mac-abatement.md)
+- [Market Equilibrium Solver](../core/doc/market-equilibrium.md)
+- [Technology Transition](../modules/endogenous_investment/doc/reference.md)
+- [Carbon Cap Rule](../modules/ccr/doc/reference.md)
+- [Feedback Option A — Price-Elastic Baseline](../modules/elastic_baseline/doc/reference.md)
 - [Feedback Option B — Soft-Link Coupling](feedback-coupling.md)
-- [Endogenous Investment Feedback — binding spec (Phase 1)](invest-feedback-spec.md)
+- [Endogenous Investment Feedback — binding spec (Phase 1)](../modules/endogenous_investment/doc/spec.md)
 - [Endogenous Investment Feedback — architecture plan (Phase 1)](invest-feedback-plan.md)

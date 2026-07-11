@@ -1,4 +1,8 @@
-# Marginal Abatement Cost (MAC) Models
+# Core — Marginal Abatement Cost (MAC) Models Reference
+
+*(Moved from `docs/mac-abatement.md` — WO-17 doc fold.)*
+
+## Marginal Abatement Cost (MAC) Models
 
 **Files:** `src/ets/costs.py`, `src/ets/participant.py`
 
@@ -318,5 +322,5 @@ The Analysis tab renders participant MAC curves using the block data directly fr
 
 ## See also
 
-- [Technology Transition](technology-transition.md) — MAC curves per technology option, mixed portfolios
-- [Algorithm Overview](algorithm-overview.md) — how the MAC feeds into the market equilibrium solver
+- [Technology Transition](../../modules/endogenous_investment/doc/reference.md) — MAC curves per technology option, mixed portfolios
+- [Algorithm Overview](../../docs/algorithm-overview.md) — how the MAC feeds into the market equilibrium solver

@@ -1,4 +1,8 @@
-# Banking equilibrium solver (`model_approach: "banking"`)
+# Banking — Reference
+
+*(Moved from `docs/banking-equilibrium.md` — WO-17 doc fold.)*
+
+## Banking equilibrium solver (`model_approach: "banking"`)
 
 Implements the deterministic, risk-neutral Rubin/Schennach banking
 equilibrium (Rubin 1996; Schennach 2000) — the price-formation rule the K-MSR

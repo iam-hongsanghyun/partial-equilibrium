@@ -1,8 +1,12 @@
-# Carbon Cap Rule (CCR)
+# CCR — Reference
+
+*(Moved from `docs/carbon-cap-rule.md` — WO-17 doc fold.)*
+
+## Carbon Cap Rule (CCR)
 
 **Files:** `src/ets/solvers/ccr.py` (logic), `src/ets/ccr.py` (shim), `src/ets/solvers/simulation.py` (integration)
 **Enabled by:** `ccr_enabled: true`
-**Example:** [`examples/benmir_ccr_carbon_cap_rule.json`](../examples/benmir_ccr_carbon_cap_rule.json)
+**Example:** [`examples/benmir_ccr_carbon_cap_rule.json`](../../../examples/benmir_ccr_carbon_cap_rule.json)
 
 The CCR is a rule-based **adaptive cap** — the cap-and-trade analogue of a Taylor
 rule in monetary policy. Instead of a fixed per-period cap, the regulator adjusts
@@ -117,7 +121,7 @@ When the CCR is enabled, each year's summary row reports:
 
 ## Worked example
 
-[`examples/benmir_ccr_carbon_cap_rule.json`](../examples/benmir_ccr_carbon_cap_rule.json)
+[`examples/benmir_ccr_carbon_cap_rule.json`](../../../examples/benmir_ccr_carbon_cap_rule.json)
 compares a fixed cap and a CCR under an identical market hit by a **persistent**
 emissions + abatement-cost shock from 2028 onward. The CCR loosens the cap by
 ~+29/+24 Mt while abatement costs run hot, holding the post-shock price peak to

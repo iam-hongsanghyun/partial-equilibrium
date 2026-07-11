@@ -1,4 +1,8 @@
-# Multi-Year Simulation, Banking, Borrowing & Expectation Formation
+# Core — Multi-Year Simulation Reference
+
+*(Moved from `docs/multi-year-simulation.md` — WO-17 doc fold.)*
+
+## Multi-Year Simulation, Banking, Borrowing & Expectation Formation
 
 **Files:** `src/ets/solvers/simulation.py`, `src/ets/solvers/expectations.py`, `src/ets/solvers/hotelling.py`, `src/ets/solvers/nash.py`, `src/ets/solvers/msr.py`
 
@@ -109,7 +113,7 @@ The per-year value is still required in the JSON for compatibility (it provides 
 
 1. **Less repetition:** A single trajectory replaces identical year-by-year copy-paste.
 2. **Consistency:** Trajectory values are guaranteed to be linearly interpolated — no risk of non-monotone accidental entries.
-3. **Policy interaction:** OBA benchmarks are also declining over time (see [oba-allocation.md](oba-allocation.md)), and BAU trajectories let you model structural efficiency improvements separately from benchmark tightening.
+3. **Policy interaction:** OBA benchmarks are also declining over time (see [oba-allocation.md](../../modules/oba/doc/reference.md)), and BAU trajectories let you model structural efficiency improvements separately from benchmark tightening.
 
 ---
 
@@ -343,7 +347,7 @@ When a small number of large participants can move the market price by changing 
 | `solver_nash_max_iters` | Maximum Jacobi iterations per year |
 | `solver_nash_convergence_tol` | Convergence tolerance on abatement (Mt) |
 
-See [algorithm-overview.md](algorithm-overview.md) for the full Nash-Cournot algorithm.
+See [algorithm-overview.md](../../docs/algorithm-overview.md) for the full Nash-Cournot algorithm.
 
 ---
 
@@ -588,6 +592,6 @@ Banking arbitrages the price difference down until the differential equals the o
 
 - [Market Equilibrium Solver](market-equilibrium.md) — how each year's price is found
 - [MAC & Abatement Models](mac-abatement.md) — how participant demand responds to price
-- [Algorithm Overview](algorithm-overview.md) — full execution flow and modelling approaches
-- [Output-Based Allocation](oba-allocation.md) — OBA interaction with trajectories
-- [Sector Configuration](sector-config.md) — sector-level dynamics in depth
+- [Algorithm Overview](../../docs/algorithm-overview.md) — full execution flow and modelling approaches
+- [Output-Based Allocation](../../modules/oba/doc/reference.md) — OBA interaction with trajectories
+- [Sector Configuration](../../modules/sectors/doc/reference.md) — sector-level dynamics in depth

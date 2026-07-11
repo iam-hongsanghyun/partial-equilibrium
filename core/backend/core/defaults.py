@@ -33,7 +33,7 @@ MSR_DEFAULTS = {
 # Defaults leave the CCR disabled and neutral (no adjustment); the paper's
 # optimal coefficients are intentionally NOT hardcoded here because they are in
 # the paper's normalised units and must be calibrated to each scenario's cap
-# scale (see the example scenario and docs/carbon-cap-rule.md).
+# scale (see the example scenario and modules/ccr/doc/reference.md).
 
 CCR_DEFAULTS = {
     "ccr_enabled": False,

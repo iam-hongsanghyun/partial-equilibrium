@@ -1,4 +1,8 @@
-# Output-Based Allocation (OBA)
+# OBA — Reference
+
+*(Moved from `docs/oba-allocation.md` — WO-17 doc fold.)*
+
+## Output-Based Allocation (OBA)
 
 **Files:** `src/ets/config_io/builder.py` (OBA override block), `src/ets/participant/models.py` (participant fields)
 
@@ -191,7 +195,7 @@ To model the Phase 4 design, use `benchmark_emission_intensity` values derived f
 
 ## See also
 
-- [Data Model & Config Schema](data-model.md) — full field reference for OBA fields
-- [Sector Configuration](sector-config.md) — how OBA interacts with sector-level caps
-- [Multi-Year Simulation](multi-year-simulation.md) — how BAU trajectories interact with OBA
+- [Data Model & Config Schema](../../../core/doc/data-model.md) — full field reference for OBA fields
+- [Sector Configuration](../../sectors/doc/reference.md) — how OBA interacts with sector-level caps
+- [Multi-Year Simulation](../../../core/doc/multi-year-simulation.md) — how BAU trajectories interact with OBA
 - `examples/k_ets_oba_benchmark.json` — full working example
