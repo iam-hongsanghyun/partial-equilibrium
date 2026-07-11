@@ -10,6 +10,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Pin the data root to this checkout regardless of install mode (editable or
+# wheel) — pe.core.paths honors PE_PROJECT_DIR when set, falling back to its
+# own file location otherwise.
+export PE_PROJECT_DIR="$SCRIPT_DIR"
+
 PORT="${ETS_COMPOSER_PORT:-8801}"
 
 if command -v uv >/dev/null 2>&1; then
