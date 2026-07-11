@@ -17,8 +17,10 @@ SERVERLESS_ROOT = Path(tempfile.gettempdir()) / "ets_runtime"
 if os.environ.get("VERCEL"):
     MPLCONFIG_DIR = SERVERLESS_ROOT / ".mplconfig"
     USER_SCENARIOS_DIR = SERVERLESS_ROOT / "user-scenarios"
+    DATABASE_DIR = SERVERLESS_ROOT / "database"
 else:
     MPLCONFIG_DIR = PROJECT_DIR / ".mplconfig"
     USER_SCENARIOS_DIR = PROJECT_DIR / "user-scenarios"
+    DATABASE_DIR = PROJECT_DIR / "database"
 
 os.environ.setdefault("MPLCONFIGDIR", str(MPLCONFIG_DIR))

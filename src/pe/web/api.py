@@ -21,12 +21,13 @@ import pandas as pd
 from ..blocks import BLOCK_CATALOGUE, Graph, derive_manifest, graph_from_config, validate_graph
 from ..blocks.serialize import serialize_catalogue
 from ..core.paths import EXAMPLES_DIR, USER_SCENARIOS_DIR
-from ..config_io import blank_config, build_markets_from_config, load_config, save_config
+from ..config_io import blank_config, build_markets_from_config
 from ..engine import run_simulation, solve_scenario_path
 from ..model_store import (
     compile_graph_or_raise,
     iter_examples,
     iter_registry_models,
+    save_config_as_model,
     save_graph_as_model,
     slugify_filename,
 )
@@ -426,6 +427,32 @@ def _handle_graph_save_model(data: dict) -> dict:
 
 
 def _save_user_scenario(payload: dict) -> dict:
+    """Handle POST /api/save-scenario — the pre-composer raw-scenario save flow.
+
+    Superseded by ``/api/graph/save-model`` (:func:`_handle_graph_save_model`)
+    for anything drawn on the composer canvas, but still the save path for a
+    scenario edited directly as JSON. Delegates to
+    ``ets.model_store.save_config_as_model`` (shared registry-write path,
+    same as every other save endpoint) rather than writing
+    ``config_io.save_config`` straight to ``USER_SCENARIOS_DIR`` — that kept
+    this handler's own file write from bypassing the active
+    :class:`~pe.registry.backend.StorageBackend` (a saved-but-not-registered
+    model would never show up in ``GET /api/templates`` or ``ets.mcp``'s
+    ``list_models``).
+
+    Args:
+        payload: ``{"scenario": <scenario dict>, "filename": <optional
+            override stem>}``.
+
+    Returns:
+        ``{"ok", "path", "filename", "template": {"id", "name", "source",
+        "config"}}``.
+
+    Raises:
+        ValueError: Missing/empty ``scenario``/name, or (via
+            :class:`~pe.model_store.ModelStoreError`, itself a
+            ``ValueError``) an all-non-alphanumeric ``filename``.
+    """
     scenario = payload.get("scenario")
     if not isinstance(scenario, dict):
         raise ValueError("Request must include a scenario object.")
@@ -433,20 +460,20 @@ def _save_user_scenario(payload: dict) -> dict:
     if not normalized_name:
         raise ValueError("Scenario must have a non-empty name before saving.")
     filename = payload.get("filename")
-    stem = _slugify_filename(filename or normalized_name)
-    path = USER_SCENARIOS_DIR / f"{stem}.json"
-    USER_SCENARIOS_DIR.mkdir(parents=True, exist_ok=True)
-    save_config({"scenarios": [scenario]}, path)
-    saved_config = load_config(path)
+    saved = save_config_as_model(
+        {"scenarios": [scenario]},
+        str(filename or normalized_name),
+        registry_dir=USER_SCENARIOS_DIR,
+    )
     return {
         "ok": True,
-        "path": str(path),
-        "filename": path.name,
+        "path": str(saved.config_path),
+        "filename": saved.config_path.name,
         "template": {
-            "id": f"user_{path.stem}",
-            "name": f"User · {path.stem.replace('_', ' ').title()}",
+            "id": saved.id,
+            "name": f"User · {saved.config_path.stem.replace('_', ' ').title()}",
             "source": "user",
-            "config": _decorate_frontend_config(saved_config, template_id=f"user_{path.stem}"),
+            "config": _decorate_frontend_config(saved.config, template_id=saved.id),
         },
     }
 

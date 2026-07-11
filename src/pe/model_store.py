@@ -36,6 +36,28 @@ locations, and every existing numeric default of this kind (solver
 tolerances, MSR/CCR defaults, ...) already lives next to the code that uses
 it (``ets.config_io.templates``, ``ets.core.defaults``) rather than in an
 env file — this module follows that established precedent.
+
+Storage-backend delegation (registry-db work order): USER-model persistence
+(everything under ``USER_SCENARIOS_DIR`` — never the read-only
+``examples/*.json``) is delegated to whichever
+:class:`~pe.registry.backend.StorageBackend` is active
+(``pe.registry.config``, default :class:`~pe.registry.sqlite_backend.
+SqliteBackend` at ``database/registry.sqlite``) — that backend, not a
+filesystem glob, is now the source of truth every read (``iter_registry_
+models``, ``resolve_model_config``, ``resolve_model_graph``) queries and
+every write (``save_graph_as_model``, ``save_config_as_model``,
+``rename_registry_model``, ``delete_registry_model``) updates. The
+``<slug>.json``/``<slug>.graph.json`` file pair every write ALSO produces is
+kept as a mirror, not removed: ``pe.web.api``'s from-template handler and
+its ``.graph.json`` sidecar test still read that pair directly (a
+pre-existing bypass of this module, not itself part of the backend seam —
+see its docstring), and keeping the mirror in sync means neither it nor any
+other direct file reader needed to change for this refactor to be a true
+drop-in. A ``registry_dir`` override (explicit, or a monkeypatched
+``USER_SCENARIOS_DIR`` module global — how the test suite isolates registry
+state per test) resolves to its OWN, independent SQLite file at
+``<registry_dir>/registry.sqlite`` rather than the production default; see
+``pe.registry.config.get_backend_for_directory`` for exactly how.
 """
 
 from __future__ import annotations
@@ -49,6 +71,8 @@ from typing import Any
 from .blocks import Graph, compile_graph, graph_from_config, validate_graph
 from .config_io import load_config, save_config
 from .core.paths import EXAMPLES_DIR, USER_SCENARIOS_DIR
+from .registry.backend import StorageBackend
+from .registry.config import get_backend_for_directory
 
 
 class ModelStoreError(ValueError):
@@ -58,6 +82,25 @@ class ModelStoreError(ValueError):
     ``Exception``/``ValueError`` (``ets.web.server``'s WSGI 400 handler) need
     no changes.
     """
+
+
+def _backend_for(directory: Path) -> StorageBackend:
+    """Resolve the :class:`~pe.registry.backend.StorageBackend` serving ``directory``.
+
+    Thin, grep-able wrapper around
+    :func:`pe.registry.config.get_backend_for_directory` — every USER-model
+    read/write in this module goes through it, so ``directory`` (already
+    resolved from a ``registry_dir`` override or the module-level
+    ``USER_SCENARIOS_DIR`` default) is the one place that decides which
+    on-disk/hosted registry a call reaches.
+
+    Args:
+        directory: An already-resolved registry directory (never ``None``).
+
+    Returns:
+        The backend instance to use.
+    """
+    return get_backend_for_directory(directory)
 
 
 @dataclass(frozen=True)
@@ -129,7 +172,12 @@ def save_graph_as_model(
 ) -> SavedModel:
     """Validate, compile, and persist a graph as a registry model.
 
-    Writes two files under ``registry_dir`` (default ``USER_SCENARIOS_DIR``):
+    Persists to the active :class:`~pe.registry.backend.StorageBackend` for
+    ``registry_dir`` (default ``USER_SCENARIOS_DIR`` — see this module's
+    docstring, "Storage-backend delegation") — the source of truth every
+    other registry read/write in this module now goes through — and ALSO
+    mirrors two files under ``registry_dir``, unchanged from before this
+    backend seam existed:
 
     * ``<slug>.json`` — the compiled scenario config
       (``config_io.save_config``), so it is picked up by every existing
@@ -137,14 +185,17 @@ def save_graph_as_model(
       ``ets.mcp.tools.list_models``) and runs unmodified through
       ``run_simulation_from_config``.
     * ``<slug>.graph.json`` — the source composer graph verbatim, so the
-      model reopens exactly as drawn (see :func:`resolve_model_graph`).
+      model reopens exactly as drawn (see :func:`resolve_model_graph`, and
+      ``pe.web.api``'s from-template handler, which still reads this file
+      directly).
 
     Args:
         graph: The drawn block graph.
         name: Display name; also the basis for the ``<slug>`` (via
             :func:`slugify_filename`) and thus the registry id.
-        registry_dir: Where to write the two files. Defaults to
-            ``ets.core.paths.USER_SCENARIOS_DIR``.
+        registry_dir: Where to write the two mirror files (and, via
+            :func:`_backend_for`, which backend instance persists the
+            model). Defaults to ``ets.core.paths.USER_SCENARIOS_DIR``.
 
     Returns:
         The :class:`SavedModel`.
@@ -164,12 +215,71 @@ def save_graph_as_model(
     config_path = directory / f"{stem}.json"
     graph_path = directory / f"{stem}.graph.json"
     save_config(config, config_path)
-    graph_path.write_text(json.dumps(graph.to_dict(), indent=2), encoding="utf-8")
+    graph_payload = graph.to_dict()
+    graph_path.write_text(json.dumps(graph_payload, indent=2), encoding="utf-8")
+    saved_config = load_config(config_path)
+
+    _backend_for(directory).save_model(
+        stem, display_name, saved_config, graph_payload, source="graph", domain=None
+    )
 
     return SavedModel(
         id=f"user_{stem}",
         name=display_name,
-        config=load_config(config_path),
+        config=saved_config,
+        config_path=config_path,
+        graph_path=graph_path,
+    )
+
+
+def save_config_as_model(
+    config: dict[str, Any], name: str, *, registry_dir: Path | None = None
+) -> SavedModel:
+    """Persist an already-compiled scenario config (no composer graph) as a model.
+
+    The bare-config counterpart to :func:`save_graph_as_model`, for callers
+    that already have a compiled ``{"scenarios": [...]}`` dict rather than a
+    composer :class:`~pe.blocks.Graph` — today, ``pe.web.api``'s legacy
+    ``POST /api/save-scenario`` handler (pre-dates the composer's ``POST
+    /api/graph/save-model``). Writes only ``<slug>.json`` — no
+    ``.graph.json`` sidecar, since there is no source graph to round-trip;
+    :func:`resolve_model_graph` already handles a registry model with no
+    sidecar by decompiling its config on demand.
+
+    Args:
+        config: A scenario-config dict, as accepted by
+            ``config_io.save_config``.
+        name: Display name; also the basis for the ``<slug>`` (via
+            :func:`slugify_filename`) and thus the registry id.
+        registry_dir: Defaults to ``ets.core.paths.USER_SCENARIOS_DIR``.
+
+    Returns:
+        The :class:`SavedModel` (``graph_path`` names where a sidecar
+        *would* live; no file is written there).
+
+    Raises:
+        ModelStoreError: Empty ``name``.
+    """
+    display_name = name.strip()
+    if not display_name:
+        raise ModelStoreError("A model needs a non-empty name.")
+
+    directory = registry_dir if registry_dir is not None else USER_SCENARIOS_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = slugify_filename(display_name)
+    config_path = directory / f"{stem}.json"
+    graph_path = directory / f"{stem}.graph.json"
+    save_config(config, config_path)
+    saved_config = load_config(config_path)
+
+    _backend_for(directory).save_model(
+        stem, display_name, saved_config, None, source="config", domain=None
+    )
+
+    return SavedModel(
+        id=f"user_{stem}",
+        name=display_name,
+        config=saved_config,
         config_path=config_path,
         graph_path=graph_path,
     )
@@ -206,14 +316,19 @@ def _require_registry_model_id(model_id: str) -> str:
 def rename_registry_model(
     model_id: str, new_name: str, *, registry_dir: Path | None = None
 ) -> SavedModel:
-    """Rename a registry model by re-slugging its on-disk files to ``new_name``.
+    """Rename a registry model by re-slugging it (backend row + mirror files) to ``new_name``.
 
     A registry model's display name (see :func:`resolve_model_config`'s
     sibling ``ets.mcp.compact.describe_model_entry``) is derived from its
-    id/slug, not stored inside the config — so "renaming" means moving
-    ``<old_slug>.json`` (and its ``<old_slug>.graph.json`` sidecar, if
-    present) to the new slug's filenames, exactly mirroring how
-    :func:`save_graph_as_model` derives a slug from a display name.
+    id/slug, not stored as an independent field — so "renaming" means the
+    registry id itself changes. That's a domain-specific policy this
+    function implements as a composition on top of the backend
+    (fetch the old row, persist it under the new slug, drop the old slug),
+    rather than delegating to ``StorageBackend.rename_model`` — see that
+    method's docstring for why it only ever renames a row's display name IN
+    PLACE and never re-keys it. The on-disk ``<slug>.json``/
+    ``<slug>.graph.json`` mirror is renamed the same way
+    :func:`save_graph_as_model` writes it.
 
     Args:
         model_id: The registry model's current ``"user_<slug>"`` id.
@@ -237,22 +352,49 @@ def rename_registry_model(
         raise ModelStoreError("A model needs a non-empty name.")
 
     directory = registry_dir if registry_dir is not None else USER_SCENARIOS_DIR
-    config_path = directory / f"{slug}.json"
-    graph_path = directory / f"{slug}.graph.json"
-    if not config_path.exists():
+    backend = _backend_for(directory)
+    record = backend.get_model(slug)
+    if record is None:
         raise ModelStoreError(f"Unknown model id '{model_id}'.")
 
     new_slug = slugify_filename(display_name)
-    new_config_path = directory / f"{new_slug}.json"
-    new_graph_path = directory / f"{new_slug}.graph.json"
-    if new_slug != slug and new_config_path.exists():
+    if new_slug != slug and backend.get_model(new_slug) is not None:
         raise ModelStoreError(
             f"A registry model named '{display_name}' already exists (id 'user_{new_slug}')."
         )
 
-    config_path.rename(new_config_path)
+    backend.save_model(
+        new_slug,
+        display_name,
+        record.config,
+        record.graph,
+        source=record.source,
+        domain=record.domain,
+    )
+    if new_slug != slug:
+        backend.delete_model(slug)
+
+    # Mirror the rename onto the on-disk file pair — pe.web.api's
+    # from-template handler still reads the `.graph.json` sidecar directly
+    # (see this module's docstring, "Storage-backend delegation"). Renaming
+    # the existing files is the common case; materializing them from the
+    # backend record is a defensive fallback for a row with no file mirror
+    # yet (not reachable via any current writer, but keeps the mirror
+    # consistent if one ever exists).
+    config_path = directory / f"{slug}.json"
+    graph_path = directory / f"{slug}.graph.json"
+    new_config_path = directory / f"{new_slug}.json"
+    new_graph_path = directory / f"{new_slug}.graph.json"
+    if config_path.exists():
+        if config_path != new_config_path:
+            config_path.rename(new_config_path)
+    else:
+        save_config(record.config, new_config_path)
     if graph_path.exists():
-        graph_path.rename(new_graph_path)
+        if graph_path != new_graph_path:
+            graph_path.rename(new_graph_path)
+    elif record.graph is not None:
+        new_graph_path.write_text(json.dumps(record.graph, indent=2), encoding="utf-8")
 
     return SavedModel(
         id=f"user_{new_slug}",
@@ -264,7 +406,7 @@ def rename_registry_model(
 
 
 def delete_registry_model(model_id: str, *, registry_dir: Path | None = None) -> None:
-    """Delete a registry model's config and (if present) its graph sidecar.
+    """Delete a registry model: its backend row, and (if present) its mirror files.
 
     Args:
         model_id: The registry model's ``"user_<slug>"`` id.
@@ -276,11 +418,15 @@ def delete_registry_model(model_id: str, *, registry_dir: Path | None = None) ->
     """
     slug = _require_registry_model_id(model_id)
     directory = registry_dir if registry_dir is not None else USER_SCENARIOS_DIR
+    backend = _backend_for(directory)
+    if backend.get_model(slug) is None:
+        raise ModelStoreError(f"Unknown model id '{model_id}'.")
+    backend.delete_model(slug)
+
     config_path = directory / f"{slug}.json"
     graph_path = directory / f"{slug}.graph.json"
-    if not config_path.exists():
-        raise ModelStoreError(f"Unknown model id '{model_id}'.")
-    config_path.unlink()
+    if config_path.exists():
+        config_path.unlink()
     if graph_path.exists():
         graph_path.unlink()
 
@@ -313,22 +459,17 @@ def iter_registry_models(
 
     Args:
         registry_dir: Defaults to ``ets.core.paths.USER_SCENARIOS_DIR``.
-            Created if it doesn't exist yet.
+            Created if it doesn't exist yet (the on-disk mirror directory —
+            see this module's docstring, "Storage-backend delegation").
 
     Yields:
-        ``(f"user_{path.stem}", config)`` in sorted filename order.
-        ``*.graph.json`` composer-graph sidecars (:func:`save_graph_as_model`)
-        are skipped, as is any file that fails to load.
+        ``(f"user_{record.id}", record.config)``, ordered deterministically
+        by id (:meth:`~pe.registry.backend.StorageBackend.list_models`).
     """
     directory = registry_dir if registry_dir is not None else USER_SCENARIOS_DIR
     directory.mkdir(parents=True, exist_ok=True)
-    for path in sorted(directory.glob("*.json")):
-        if path.name.endswith(".graph.json"):
-            continue
-        try:
-            yield f"user_{path.stem}", load_config(path)
-        except Exception:
-            continue
+    for record in _backend_for(directory).list_models():
+        yield f"user_{record.id}", record.config
 
 
 def resolve_model_config(
@@ -343,7 +484,9 @@ def resolve_model_config(
         registry_dir: Defaults to ``ets.core.paths.USER_SCENARIOS_DIR``.
 
     Returns:
-        The scenario-config dict (``config_io.load_config`` output).
+        The scenario-config dict — ``config_io.load_config`` output for an
+        example, or the active backend's stored (already-normalized)
+        config for a registry model.
 
     Raises:
         ModelStoreError: ``model_id`` is empty or matches no known model.
@@ -352,10 +495,12 @@ def resolve_model_config(
         raise ModelStoreError("A model id is required.")
     if model_id.startswith("user_"):
         directory = registry_dir if registry_dir is not None else USER_SCENARIOS_DIR
-        path = directory / f"{model_id.removeprefix('user_')}.json"
-    else:
-        directory = examples_dir if examples_dir is not None else EXAMPLES_DIR
-        path = directory / f"{model_id}.json"
+        record = _backend_for(directory).get_model(model_id.removeprefix("user_"))
+        if record is None:
+            raise ModelStoreError(f"Unknown model id '{model_id}'.")
+        return record.config
+    directory = examples_dir if examples_dir is not None else EXAMPLES_DIR
+    path = directory / f"{model_id}.json"
     if not path.exists():
         raise ModelStoreError(f"Unknown model id '{model_id}'.")
     return load_config(path)
@@ -364,15 +509,16 @@ def resolve_model_config(
 def resolve_model_graph(
     model_id: str, *, examples_dir: Path | None = None, registry_dir: Path | None = None
 ) -> Graph:
-    """Resolve a model id to its composer graph, preferring a saved sidecar.
+    """Resolve a model id to its composer graph, preferring a saved source graph.
 
     For a registry model (``"user_<slug>"``) saved through
     :func:`save_graph_as_model`, the original composer graph is returned
-    verbatim from its ``<slug>.graph.json`` sidecar when present — an exact
+    verbatim from the active backend's stored graph payload — an exact
     round trip of what was drawn, including canvas metadata. Every other
-    case (an example, or a registry model saved through the older
-    ``/api/save-scenario`` flow with no sidecar) falls back to decompiling
-    the resolved config (:func:`ets.blocks.decompile.graph_from_config`).
+    case (an example, or a registry model saved through
+    :func:`save_config_as_model` / the older ``/api/save-scenario`` flow,
+    neither of which has a source graph) falls back to decompiling the
+    resolved config (:func:`ets.blocks.decompile.graph_from_config`).
 
     Args:
         model_id: An example stem or a registry ``"user_<slug>"`` id.
@@ -387,8 +533,8 @@ def resolve_model_graph(
     """
     if model_id.startswith("user_"):
         directory = registry_dir if registry_dir is not None else USER_SCENARIOS_DIR
-        graph_path = directory / f"{model_id.removeprefix('user_')}.graph.json"
-        if graph_path.exists():
-            return Graph.from_dict(json.loads(graph_path.read_text(encoding="utf-8")))
+        record = _backend_for(directory).get_model(model_id.removeprefix("user_"))
+        if record is not None and record.graph is not None:
+            return Graph.from_dict(record.graph)
     config = resolve_model_config(model_id, examples_dir=examples_dir, registry_dir=registry_dir)
     return graph_from_config(config)
