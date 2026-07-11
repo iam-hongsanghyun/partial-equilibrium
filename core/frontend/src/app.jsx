@@ -11,6 +11,14 @@ import {
 } from "./components/AppShared.jsx";
 import { BuildView, ValidationView, AnalysisView, Compare } from "./components/AppViews.jsx";
 import { GuideView, hasGuideContent } from "./components/GuideView.jsx";
+import {
+  flattenRunScenarios,
+  jointRowsFromSummary,
+  jointProblemsFromRows,
+  jointRowForScenario,
+  JointNonConvergenceBanner,
+  JointConvergenceCard,
+} from "./components/MultiMarket.jsx";
 
 export default function App({ enabledFeatures = null, manifest = null, initialTemplateId = null } = {}) {
   const [templates, setTemplates] = useS([]);
@@ -20,6 +28,9 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
   const [analysis, setAnalysis] = useS([]);
   const [activeScenarioId, setActiveScenarioId] = useS(null);
   const [activeYear, setActiveYear] = useS(null);
+  // JOINT / multi-market only: which market of the active scenario is on screen.
+  // Null selects the first market; ignored entirely for a single-market scenario.
+  const [activeMarketId, setActiveMarketId] = useS(null);
   const [stacked, setStacked] = useS(true);
   const [activeSection, setActiveSection] = useS("build");
   const [selPart, setSelPart] = useS(null);
@@ -96,8 +107,13 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
       configRef.current = initialConfig;
       loadedConfigRef.current = structuredClone(defaultTemplate);
       const firstScenario = defaultTemplate.scenarios?.[0];
+      // A JOINT scenario carries its years inside each market, not at the top
+      // level — seed the active year from the first market's years then.
+      const firstYears = Array.isArray(firstScenario?.markets) && firstScenario.markets.length
+        ? (firstScenario.markets[0].years || [])
+        : (firstScenario?.years || []);
       setActiveScenarioId(firstScenario?.id || null);
-      setActiveYear(firstScenario?.years?.[0]?.year || null);
+      setActiveYear(firstYears[0]?.year || null);
       setResults({});
       setSummary([]);
       setAnalysis([]);
@@ -158,8 +174,14 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
       }
       const scenario = payload.config?.scenarios?.find((s) => s.id === activeScenarioId)
         || payload.config?.scenarios?.[0];
-      if (scenario && !scenario.years.some((y) => String(y.year) === String(activeYear))) {
-        setActiveYear(scenario.years?.[0]?.year || null);
+      // A JOINT scenario has no top-level years — check the active year against
+      // its first market's years instead (a flat scenario reads scenario.years
+      // exactly as before).
+      const scenarioYears = Array.isArray(scenario?.markets) && scenario.markets.length
+        ? (scenario.markets[0].years || [])
+        : (scenario?.years || []);
+      if (scenario && !scenarioYears.some((y) => String(y.year) === String(activeYear))) {
+        setActiveYear(scenarioYears[0]?.year || null);
       }
       setStatus("Complete");
     } catch (error) {
@@ -169,11 +191,31 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
 
   const scenarios = config.scenarios || [];
   const activeScenario = scenarios.find((s) => s.id === activeScenarioId) || scenarios[0];
-  const yearObj = activeScenario?.years?.find((y) => String(y.year) === String(activeYear)) || activeScenario?.years?.[0];
-  const result = activeScenario && yearObj ? results?.[activeScenario.name]?.[String(yearObj.year)] : null;
+  // A JOINT / multi-market scenario carries a `markets` array instead of a
+  // top-level `years`, and the backend keys its results by the composite
+  // `"<scenario> :: <market>"`. Flatten it into one pseudo-scenario per market
+  // (the SAME helper the Composer uses) and drive every per-scenario view off
+  // the SELECTED market's pseudo-scenario. Config-driven guard: a scenario with
+  // no `markets` array sets activeIsJoint=false, so viewScenario===activeScenario,
+  // viewScenarios===scenarios, activeMarket===null, and the single-market path
+  // below stays byte-for-byte what it is today.
+  const activeIsJoint = Array.isArray(activeScenario?.markets) && activeScenario.markets.length > 0;
+  const marketScenarios = activeIsJoint ? flattenRunScenarios([activeScenario]) : null;
+  const viewScenario = activeIsJoint
+    ? (marketScenarios.find((m) => m.marketId === activeMarketId) || marketScenarios[0])
+    : activeScenario;
+  const viewScenarios = activeIsJoint ? marketScenarios : scenarios;
+  const activeMarket = activeIsJoint ? (viewScenario?.marketId ?? null) : null;
+  const yearObj = viewScenario?.years?.find((y) => String(y.year) === String(activeYear)) || viewScenario?.years?.[0];
+  const result = viewScenario && yearObj ? results?.[viewScenario.name]?.[String(yearObj.year)] : null;
   const displayResult = yearObj ? (result || buildDraftResult(yearObj)) : null;
   const hasEditedChanges = loadedConfigRef.current ? !configsEqual(config, loadedConfigRef.current) : false;
-  const validationIssues = validateScenario(activeScenario, enabledFeatures);
+  const validationIssues = validateScenario(viewScenario, enabledFeatures);
+  // Joint-equilibrium convergence diagnostics — present-guarded summary rows the
+  // backend stamps only on cyclic-SCC markets; empty (inert) for a flat run.
+  const jointRows = jointRowsFromSummary(summary);
+  const jointProblems = jointProblemsFromRows(jointRows);
+  const activeJointRow = jointRowForScenario(jointRows, viewScenario?.name);
 
   const commitConfig = (updater) => {
     setConfig((prev) => {
@@ -183,20 +225,38 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
     });
   };
 
+  // Replace the active scenario's year list. For a flat scenario that is
+  // `scenario.years`; for a JOINT scenario it is the SELECTED market's
+  // `markets[i].years`. `scenarioPatch` (flat only) preserves the pre-joint
+  // saveScenarioYear behaviour of spreading the scenario-level draft. When
+  // activeMarket is null (every single-market scenario) the else branch is the
+  // exact old handler body, so flat edits are byte-for-byte unchanged.
+  const mapActiveYears = (prev, mapYears, scenarioPatch = null) => ({
+    ...prev,
+    scenarios: prev.scenarios.map((scenario) => {
+      if (scenario.id !== activeScenario.id) return scenario;
+      if (activeMarket != null) {
+        return {
+          ...scenario,
+          markets: (scenario.markets || []).map((market) =>
+            String(market.market_id) === String(activeMarket)
+              ? { ...market, years: mapYears(market.years || []) }
+              : market
+          ),
+        };
+      }
+      return { ...scenario, ...(scenarioPatch || {}), years: mapYears(scenario.years) };
+    }),
+  });
+
   const updateYear = (newYear) => {
-    commitConfig((prev) => ({
-      ...prev,
-      scenarios: prev.scenarios.map((scenario) =>
-        scenario.id !== activeScenario.id
-          ? scenario
-          : {
-              ...scenario,
-              years: scenario.years.map((year) =>
-                String(year.year) === String(yearObj.year) ? { ...year, ...newYear } : year
-              ),
-            }
-      ),
-    }));
+    commitConfig((prev) =>
+      mapActiveYears(prev, (years) =>
+        years.map((year) =>
+          String(year.year) === String(yearObj.year) ? { ...year, ...newYear } : year
+        )
+      )
+    );
   };
 
   const updateScenario = (patch) => {
@@ -250,8 +310,8 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
   };
 
   const addYear = () => {
-    if (!activeScenario) return;
-    const existingYears = activeScenario.years.map((item) => Number(item.year)).filter(Number.isFinite);
+    if (!viewScenario) return;
+    const existingYears = (viewScenario.years || []).map((item) => Number(item.year)).filter(Number.isFinite);
     const nextYear = existingYears.length ? Math.max(...existingYears) + 5 : 2030;
     const templateParticipants = yearObj?.participants?.length
       ? yearObj.participants.map((participant) => ({ ...participant }))
@@ -261,65 +321,43 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
       participants: templateParticipants,
     };
 
-    commitConfig((prev) => ({
-      ...prev,
-      scenarios: prev.scenarios.map((scenario) =>
-        scenario.id !== activeScenario.id
-          ? scenario
-          : { ...scenario, years: [...scenario.years, nextYearConfig] }
-      ),
-    }));
+    commitConfig((prev) => mapActiveYears(prev, (years) => [...years, nextYearConfig]));
     setActiveYear(String(nextYear));
   };
 
   const saveScenarioYear = (scenarioDraft, yearDraft, originalYear) => {
-    if (!activeScenario) return;
-    commitConfig((prev) => ({
-      ...prev,
-      scenarios: prev.scenarios.map((scenario) =>
-        scenario.id !== activeScenario.id
-          ? scenario
-          : {
-              ...scenario,
-              ...scenarioDraft,
-              years: scenario.years.map((item) =>
-                String(item.year) === String(originalYear) ? { ...yearDraft } : item
-              ),
-            }
-      ),
-    }));
+    if (!viewScenario) return;
+    commitConfig((prev) =>
+      mapActiveYears(
+        prev,
+        (years) =>
+          years.map((item) =>
+            String(item.year) === String(originalYear) ? { ...yearDraft } : item
+          ),
+        scenarioDraft
+      )
+    );
     setActiveYear(String(yearDraft.year));
     setStatus("Saved");
   };
 
   const updateYearSeriesValue = (field, valuesByYear) => {
-    if (!activeScenario) return;
-    commitConfig((prev) => ({
-      ...prev,
-      scenarios: prev.scenarios.map((scenario) =>
-        scenario.id !== activeScenario.id
-          ? scenario
-          : {
-              ...scenario,
-              years: scenario.years.map((item) => ({
-                ...item,
-                [field]: valuesByYear[String(item.year)] ?? item[field],
-              })),
-            }
-      ),
-    }));
+    if (!viewScenario) return;
+    commitConfig((prev) =>
+      mapActiveYears(prev, (years) =>
+        years.map((item) => ({
+          ...item,
+          [field]: valuesByYear[String(item.year)] ?? item[field],
+        }))
+      )
+    );
     setStatus("Updated");
   };
 
   const removeYear = () => {
-    if (!activeScenario || activeScenario.years.length <= 1) return;
-    const nextYears = activeScenario.years.filter((item) => String(item.year) !== String(yearObj.year));
-    commitConfig((prev) => ({
-      ...prev,
-      scenarios: prev.scenarios.map((scenario) =>
-        scenario.id !== activeScenario.id ? scenario : { ...scenario, years: nextYears }
-      ),
-    }));
+    if (!viewScenario || (viewScenario.years || []).length <= 1) return;
+    const nextYears = viewScenario.years.filter((item) => String(item.year) !== String(yearObj.year));
+    commitConfig((prev) => mapActiveYears(prev, () => nextYears));
     setActiveYear(String(nextYears[0]?.year || ""));
     setSelPart(null);
   };
@@ -388,7 +426,7 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
       setActiveYear(String(target.year));
     }
     if (target.participantName) {
-      const targetYear = activeScenario?.years?.find((item) => String(item.year) === String(target.year || activeYear)) || yearObj;
+      const targetYear = viewScenario?.years?.find((item) => String(item.year) === String(target.year || activeYear)) || yearObj;
       const participantIndex = (targetYear?.participants || []).findIndex((item) => item.name === target.participantName);
       setSelPart(participantIndex >= 0 ? participantIndex : null);
     } else {
@@ -471,9 +509,34 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
         </div>
       )}
 
+      {activeIsJoint && <JointNonConvergenceBanner problems={jointProblems} />}
+
+      {activeIsJoint && (
+        <div className="wb">
+          <nav className="hdr-scenarios">
+            {marketScenarios.map((market) => (
+              <button
+                key={market.id}
+                type="button"
+                className={"pill-btn " + (viewScenario?.id === market.id ? "on" : "")}
+                style={{ "--c": market.color }}
+                onClick={() => {
+                  setActiveMarketId(market.marketId);
+                  setActiveYear(String(market.years?.[0]?.year || activeYear || ""));
+                  setSelPart(null);
+                }}
+              >
+                <i className="sw" style={{ background: market.color }}></i>Market {market.marketId}
+              </button>
+            ))}
+          </nav>
+          <JointConvergenceCard row={activeJointRow} />
+        </div>
+      )}
+
       {activeSection === "build" && (
         <BuildView
-          scenario={activeScenario}
+          scenario={viewScenario}
           yearObj={yearObj}
           onYearChange={(year) => { setActiveYear(year); setSelPart(null); }}
           activeYear={activeYear}
@@ -495,7 +558,7 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
 
       {activeSection === "validation" && (
         <ValidationView
-          scenario={activeScenario}
+          scenario={viewScenario}
           activeYear={activeYear}
           onYearChange={(year) => { setActiveYear(year); setSelPart(null); }}
           validationIssues={validationIssues}
@@ -505,13 +568,13 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
 
       {activeSection === "analysis" && (
         <AnalysisView
-          scenario={activeScenario}
+          scenario={viewScenario}
           yearObj={yearObj}
           onYearChange={(year) => { setActiveYear(year); setSelPart(null); }}
           activeYear={activeYear}
           result={displayResult}
           results={results}
-          scenarios={scenarios}
+          scenarios={viewScenarios}
           stacked={stacked}
           onToggleStacked={() => setStacked((value) => !value)}
           dragSupply={dragSupply}
@@ -524,7 +587,7 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
       )}
 
       {activeSection === "scenario" && (
-        <Compare scenarios={scenarios} results={results} activeYear={activeYear} onYear={setActiveYear} />
+        <Compare scenarios={viewScenarios} results={results} activeYear={activeYear} onYear={setActiveYear} />
       )}
 
       {activeSection === "guide" && <GuideView enabledFeatures={enabledFeatures} />}
