@@ -272,14 +272,19 @@ def _add_link(
     return graph
 
 
-def test_r34_cycle_rejected() -> None:
+def test_r34_cycle_is_legal_no_error() -> None:
+    """R34 FLIP (D2-3): a cycle A<->B is LEGAL — no R34 error (it is the joint SCC).
+
+    Both markets are competitive (no banking / discrete-adoption member), so R37
+    stays silent too even though this graph carries no damping declaration.
+    """
     graph = _two_market_graph()
     _add_link(graph, "l1", from_market="mA", to_market="mB")
     _add_link(graph, "l2", from_market="mB", to_market="mA", target_participants=["A_firm"])
     issues = validate_graph(graph)
-    assert "R34" in _issue_rules(issues)
-    (r34,) = [i for i in issues if i.rule == "R34" and i.node is None]
-    assert "cycle" in r34.message.lower()
+    assert "R34" not in _issue_rules(issues)
+    assert not any("cycle" in i.message.lower() for i in issues if i.rule == "R34")
+    assert "R37" not in _issue_rules(issues, level="warning")
 
 
 def test_r34_self_link_rejected() -> None:
@@ -297,6 +302,45 @@ def test_r34_malformed_cardinality_rejected() -> None:
         Node("l1", "market_link", {"channel": "mac_cost", "phi": 0.5, "phi_unit": "1/1", "target_participants": ["B_firm"]})
     )
     assert "R34" in _issue_rules(validate_graph(graph))
+
+
+def _make_banking(graph: Graph, market: str) -> Graph:
+    """Swap a market's competitive price-formation node for rubin_schennach_banking."""
+    pf_id = f"{market}_pf"
+    graph.node(pf_id).block = "rubin_schennach_banking"
+    return graph
+
+
+def test_r37_undamped_cyclic_banking_warns() -> None:
+    """R37: a cycle over a banking market run UNDAMPED (relaxation=1.0) => WARNING."""
+    graph = _make_banking(_two_market_graph(), "mB")
+    _add_link(graph, "l1", from_market="mA", to_market="mB", relaxation=1.0)
+    _add_link(graph, "l2", from_market="mB", to_market="mA", target_participants=["A_firm"], relaxation=1.0)
+    warnings = _issue_rules(validate_graph(graph), level="warning")
+    assert "R37" in warnings
+
+
+def test_r37_damped_cyclic_banking_silent() -> None:
+    """R37 stays silent when the cyclic SCC is damped (no relaxation param => default 0.5)."""
+    graph = _make_banking(_two_market_graph(), "mB")
+    _add_link(graph, "l1", from_market="mA", to_market="mB")  # no relaxation => damped
+    _add_link(graph, "l2", from_market="mB", to_market="mA", target_participants=["A_firm"])
+    assert "R37" not in _issue_rules(validate_graph(graph), level="warning")
+
+
+def test_r37_undamped_cyclic_without_banking_or_discrete_silent() -> None:
+    """R37 needs a banking/discrete member: an undamped competitive cycle is silent."""
+    graph = _two_market_graph()  # both competitive
+    _add_link(graph, "l1", from_market="mA", to_market="mB", relaxation=1.0)
+    _add_link(graph, "l2", from_market="mB", to_market="mA", target_participants=["A_firm"], relaxation=1.0)
+    assert "R37" not in _issue_rules(validate_graph(graph), level="warning")
+
+
+def test_r37_undamped_acyclic_banking_silent() -> None:
+    """R37 needs a CYCLE: an undamped one-way link into a banking market is silent."""
+    graph = _make_banking(_two_market_graph(), "mB")
+    _add_link(graph, "l1", from_market="mA", to_market="mB", relaxation=1.0)  # one-way, acyclic
+    assert "R37" not in _issue_rules(validate_graph(graph), level="warning")
 
 
 def test_r35_invalid_channel_rejected() -> None:

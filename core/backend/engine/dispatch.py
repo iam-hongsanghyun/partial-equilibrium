@@ -45,9 +45,11 @@ from ..core.ledger import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     from ..core.market import CarbonMarket
+    from ..core.protocols import LinkSpec
+    from .scc import SCC
 
 logger = logging.getLogger(__name__)
 
@@ -539,39 +541,49 @@ def _delivered_path(path_details: list[dict]) -> dict[str, float]:
 
 
 def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Solve one linked (multi-market) scenario as a one-way recursive-PE DAG.
+    """Solve one linked (multi-market) scenario — acyclic DAG or cyclic joint SCC.
 
-    The D1-3 multi-market dispatch (``docs/platform-spec-d0-d1.md`` §2d, §3, §7):
+    The D1-3 multi-market dispatch (``docs/platform-spec-d0-d1.md`` §2d, §3, §7),
+    with the ONE D2-3 guarded branch (``docs/joint-equilibrium-plan.md`` §5):
 
     1. Guard policy events (E7): events × multi-market is deferred to D2.
     2. Read the normalized market bodies (``iter_market_bodies``) and build the
-       ``LinkSpec`` DAG (``engine.links.build_link_specs``).
+       ``LinkSpec`` graph (``engine.links.build_link_specs``).
     3. Enforce the E8 horizon strict-subset per link (at solve entry).
-    4. Topologically order the markets (``engine.links.topological_market_order``
-       — deterministic; cycle → ValueError, R34).
-    5. Solve each market in topological order. BEFORE a market solves, apply its
-       inbound links (``engine.links.apply_inbound_links``) reading the FINAL
-       delivered paths of its already-solved ancestors — ONCE, before the path
-       solve (spec §2d). Investment feedback wraps each market's solve PER
-       MARKET (block-triangular, E4).
+    4. Condense the market graph into SCCs (``engine.scc.condensation_order``).
+       **All SCCs size-1 with no self-edge (acyclic) ⇒ the EXISTING D1 path runs
+       VERBATIM** (``topological_market_order`` + per-market ``apply_inbound_links``
+       + solve — byte-identical; the golden-inertness requirement). **Any cyclic
+       SCC ⇒ the joint path** (:func:`_solve_cyclic_multi_market`): each cyclic
+       SCC is handed to ``engine.joint.solve_joint_scc``; size-1 SCCs still solve
+       as D1, in condensation order.
+    5. (Acyclic path) Solve each market in topological order. BEFORE a market
+       solves, apply its inbound links (``engine.links.apply_inbound_links``)
+       reading the FINAL delivered paths of its already-solved ancestors — ONCE,
+       before the path solve (spec §2d). Investment feedback wraps each market's
+       solve PER MARKET (block-triangular, E4).
     6. Collect results under the composite grouping key ``"{scenario} ::
        {market_id}"`` so ``collect_path_results``/summary machinery is
        unmodified; stamp the guarded ``"Market"`` and link-diagnostic columns
-       (E6). REPORT in DECLARATION order (spec §3), while SOLVING topologically.
+       (E6). REPORT in DECLARATION order (spec §3), while SOLVING in
+       condensation/topological order.
 
     Args:
-        scenario: A raw multi-market scenario dict (``markets``/``links``).
+        scenario: A raw multi-market scenario dict (``markets``/``links``; an
+            optional ``joint_solver`` block tunes the cyclic outer loop).
 
     Returns:
         ``(summary_df, participant_df)`` — rows in declaration order of the
         markets, each summary row carrying the guarded ``"Market"`` column and,
         for a market with inbound links, per-(from,to) ``"Link ... Price In"``
         and per-(from,to,channel) ``"Link ... Input Shift"`` diagnostic columns.
+        Cyclic-SCC market rows ALSO carry the four ``"Joint *"`` columns
+        (key-presence guarded — acyclic rows never gain them).
 
     Raises:
-        ValueError: policy events present (E7); a link cycle (R34); an E8
-            horizon violation; ``model_approach "all"`` in a market; or any
-            link/body validation error.
+        ValueError: policy events present (E7); an E8 horizon violation;
+            ``model_approach "all"`` in a market; or any link/body validation
+            error. (A cycle is no longer an error — R34 flipped, D2-3.)
     """
     from .links import (
         apply_inbound_links,
@@ -579,6 +591,7 @@ def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.Data
         check_horizon_alignment,
         topological_market_order,
     )
+    from .scc import condensation_order
 
     scenario_name = str(
         scenario.get("name") or scenario.get("scenario_name") or "Multi-Market Scenario"
@@ -603,6 +616,18 @@ def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.Data
 
     links = build_link_specs(scenario)
     check_horizon_alignment(links, bodies_by_id)
+
+    # The ONE D2-3 guarded branch (docs/joint-equilibrium-plan.md §5). Condense
+    # the market graph: ANY cyclic SCC routes to the joint path; an all-acyclic
+    # graph (every SCC size-1, no self-edge) falls through to the EXISTING D1
+    # code below UNCHANGED — the golden-inertness requirement. condensation_order
+    # is a pure read of the graph and does not touch the acyclic solve output.
+    sccs = condensation_order(declared_ids, links)
+    if any(scc.cyclic for scc in sccs):
+        return _solve_cyclic_multi_market(
+            scenario, scenario_name, sccs, declared_ids, bodies_by_id, links
+        )
+
     topo_ids = topological_market_order(declared_ids, links)
 
     solved_delivered_paths: dict[str, dict[str, float]] = {}
@@ -631,6 +656,206 @@ def solve_multi_market_scenario(scenario: Mapping[str, object]) -> tuple[pd.Data
         leg_frames[market_id] = local_frames
 
     # SOLVE topological, REPORT in declaration order (spec §3).
+    scenario_summaries: list[dict] = []
+    participant_frames: list[pd.DataFrame] = []
+    for market_id in declared_ids:
+        scenario_summaries.extend(leg_summaries[market_id])
+        participant_frames.extend(leg_frames[market_id])
+
+    summary_df = pd.DataFrame.from_records(scenario_summaries)
+    participant_df = pd.concat(participant_frames, ignore_index=True)
+    return summary_df, participant_df
+
+
+def _solve_scc_member(
+    market_id: str,
+    composite_scenario_name: str,
+    bodies_by_id: Mapping[str, dict],
+    links: Sequence[LinkSpec],
+    delivered_paths: Mapping[str, Mapping[str, float]],
+) -> tuple[list[CarbonMarket], list[dict]]:
+    """Solve one SCC member against a combined delivered-paths map (D2-3 hook body).
+
+    Builds the market's ``CarbonMarket`` list, applies its inbound links, and
+    runs the SAME per-approach ``_solve_market_leg`` the acyclic D1 path runs.
+    An inbound link whose source has NO delivered path yet in ``delivered_paths``
+    (a not-yet-swept SCC sibling on the cold first sweep) is CUT — its ``phi·P``
+    contribution is omitted — which reproduces the blessed V-D2-1 one-way seed
+    (forward links normal, cycle-closing back-links cut,
+    ``docs/joint-equilibrium.md`` §6). At the final converged re-solve every
+    sibling price is present, so no link is cut. This is the closure the joint
+    outer loop injects, and the same structured seam D2-5 will wrap with the
+    investment-adoption middle loop (NOT implemented here).
+
+    Args:
+        market_id: The SCC member being solved.
+        composite_scenario_name: ``"{scenario} :: {market_id}"``.
+        bodies_by_id: Normalized market bodies keyed by market id.
+        links: The scenario's links (only this market's inbound ones apply).
+        delivered_paths: ``{market_id: {year: price}}`` — the frozen upstream
+            paths unioned with the SCC's in-flight working paths.
+
+    Returns:
+        ``(ordered_markets, path_details)`` — as :func:`_solve_market_leg`.
+    """
+    from .links import apply_inbound_links
+
+    base_markets = _build_leg_markets(bodies_by_id[market_id], composite_scenario_name)
+    inbound = [
+        link
+        for link in links
+        if link.to_market == market_id and delivered_paths.get(link.from_market)
+    ]
+    shifted = apply_inbound_links(market_id, base_markets, inbound, delivered_paths)
+    return _solve_market_leg(shifted, composite_scenario_name, market_id)
+
+
+def _solve_cyclic_scc(
+    scc: SCC,
+    scenario_name: str,
+    bodies_by_id: Mapping[str, dict],
+    links: Sequence[LinkSpec],
+    solved_delivered_paths: dict[str, dict[str, float]],
+    leg_summaries: dict[str, list[dict]],
+    leg_frames: dict[str, list[pd.DataFrame]],
+    joint_settings: Mapping[str, object] | None,
+) -> None:
+    """Solve one cyclic SCC via the joint outer loop; collect + stamp its members.
+
+    Hands the SCC to ``engine.joint.solve_joint_scc`` with an injected
+    per-market closure (``_solve_scc_member`` combined with the frozen upstream
+    paths and the SCC's in-flight working paths — the D2-3 hook, also D2-5's
+    investment seam). After convergence, freezes the fixed-point prices into
+    ``solved_delivered_paths`` and RE-SOLVES each member once against those
+    converged sibling prices to collect its full result frames (``T_m(P*) = P*``
+    at the fixed point, ``docs/joint-equilibrium.md`` §1), then stamps the four
+    guarded ``Joint *`` columns on every one of that member's rows.
+
+    Args:
+        scc: The cyclic SCC (``members`` in deterministic sweep order).
+        scenario_name: The scenario's grouping name.
+        bodies_by_id: Normalized market bodies keyed by market id.
+        links: The scenario's links.
+        solved_delivered_paths: Mutable ``{market_id: {year: price}}`` — read for
+            frozen upstream paths, extended in place with the SCC's converged
+            prices.
+        leg_summaries: Mutable per-market summary rows (extended in place).
+        leg_frames: Mutable per-market participant frames (extended in place).
+        joint_settings: The normalized ``joint_solver`` settings, or ``None`` for
+            the engine defaults (``docs/joint-equilibrium-plan.md`` §4).
+    """
+    from .joint import solve_joint_scc
+
+    members = list(scc.members)
+
+    def _solve_one_market(
+        market_id: str, scc_working_paths: Mapping[str, Mapping[str, float]]
+    ) -> Mapping[str, float]:
+        # Union the frozen upstream paths (already-solved SCCs) with the SCC's
+        # in-flight working paths, then solve this member (back-links to
+        # not-yet-swept siblings are cut inside _solve_scc_member — the seed).
+        combined = {**solved_delivered_paths, **scc_working_paths}
+        composite = f"{scenario_name} :: {market_id}"
+        _ordered, path = _solve_scc_member(market_id, composite, bodies_by_id, links, combined)
+        return _delivered_path(path)
+
+    settings = joint_settings or {}
+    result = solve_joint_scc(
+        members,
+        _solve_one_market,
+        links=links,
+        relaxation=settings.get("relaxation"),  # type: ignore[arg-type]
+        max_iterations=settings.get("max_iterations"),  # type: ignore[arg-type]
+        tolerance=settings.get("tolerance"),  # type: ignore[arg-type]
+    )
+
+    # Freeze the converged fixed-point prices BEFORE the reporting re-solve, so
+    # each member's link-diagnostic stamping reads every SIBLING's converged
+    # price (spec §4: ex-post checks run against the converged joint vector).
+    for member in members:
+        solved_delivered_paths[member] = dict(result.market_paths[member])
+
+    joint_cols = result.report_columns()
+    for member in members:
+        composite = f"{scenario_name} :: {member}"
+        ordered, path = _solve_scc_member(
+            member, composite, bodies_by_id, links, solved_delivered_paths
+        )
+        local_summaries: list[dict] = []
+        local_frames: list[pd.DataFrame] = []
+        _collect_path_results(ordered, path, local_summaries, local_frames)
+        inbound = [link for link in links if link.to_market == member]
+        _stamp_multi_market_columns(local_summaries, path, member, inbound, solved_delivered_paths)
+        for summary_row in local_summaries:  # the four Joint columns — cyclic rows ONLY
+            summary_row.update(joint_cols)
+        leg_summaries[member] = local_summaries
+        leg_frames[member] = local_frames
+
+
+def _solve_cyclic_multi_market(
+    scenario: Mapping[str, object],
+    scenario_name: str,
+    sccs: Sequence[SCC],
+    declared_ids: Sequence[str],
+    bodies_by_id: Mapping[str, dict],
+    links: Sequence[LinkSpec],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Solve a multi-market scenario containing >=1 cyclic SCC (the joint path).
+
+    Walks the SCCs in condensation order (upstream first): a size-1 acyclic SCC
+    solves EXACTLY as D1 (against already-solved upstream paths, NO ``Joint *``
+    columns); a cyclic SCC goes through :func:`_solve_cyclic_scc`. Reports in
+    declaration order (spec §3) while solving in condensation order. Only reached
+    when the acyclic guard in :func:`solve_multi_market_scenario` fails, so the
+    all-acyclic golden path never enters here.
+
+    Args:
+        scenario: The raw multi-market scenario (read for the ``joint_solver``
+            block; ``docs/joint-equilibrium-plan.md`` §4).
+        scenario_name: The scenario's grouping name.
+        sccs: The condensation order (``engine.scc.condensation_order``).
+        declared_ids: Market ids in declaration order (the reporting order).
+        bodies_by_id: Normalized market bodies keyed by market id.
+        links: The scenario's links.
+
+    Returns:
+        ``(summary_df, participant_df)`` — rows in declaration order; cyclic-SCC
+        rows carry the four ``Joint *`` columns, acyclic rows do not.
+    """
+    from ..config_io import normalize_joint_solver
+
+    joint_settings = normalize_joint_solver(
+        scenario.get("joint_solver"),  # type: ignore[arg-type]
+        label=f"Scenario '{scenario_name}'",
+    )
+
+    solved_delivered_paths: dict[str, dict[str, float]] = {}
+    leg_summaries: dict[str, list[dict]] = {}
+    leg_frames: dict[str, list[pd.DataFrame]] = {}
+
+    for scc in sccs:
+        if scc.cyclic:
+            _solve_cyclic_scc(
+                scc, scenario_name, bodies_by_id, links,
+                solved_delivered_paths, leg_summaries, leg_frames, joint_settings,
+            )
+            continue
+        # Size-1 acyclic SCC — the byte-identical D1 leg (no Joint columns).
+        (market_id,) = scc.members
+        composite = f"{scenario_name} :: {market_id}"
+        ordered, path = _solve_scc_member(
+            market_id, composite, bodies_by_id, links, solved_delivered_paths
+        )
+        solved_delivered_paths[market_id] = _delivered_path(path)
+        local_summaries: list[dict] = []
+        local_frames: list[pd.DataFrame] = []
+        _collect_path_results(ordered, path, local_summaries, local_frames)
+        inbound = [link for link in links if link.to_market == market_id]
+        _stamp_multi_market_columns(local_summaries, path, market_id, inbound, solved_delivered_paths)
+        leg_summaries[market_id] = local_summaries
+        leg_frames[market_id] = local_frames
+
+    # SOLVE in condensation order, REPORT in declaration order (spec §3).
     scenario_summaries: list[dict] = []
     participant_frames: list[pd.DataFrame] = []
     for market_id in declared_ids:

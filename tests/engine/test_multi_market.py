@@ -355,26 +355,40 @@ def test_cycle_raises_r34_engine_side() -> None:
         topological_market_order(["A", "B"], [a_to_b, b_to_a])
 
 
-def test_cycle_raises_through_config() -> None:
-    """A cyclic multi-market config raises at solve entry (before any market solves)."""
-    a = _market_a_body()
-    a["years"][0]["participants"][0] = _threshold_firm()  # give A a mac_cost target
-    a["years"][0]["participants"][0]["name"] = "A_firm"
-    b = _market_b_body()
+def test_cycle_no_longer_raises_and_dispatches_to_joint_solver() -> None:
+    """R34 FLIPPED (D2-3): a cyclic config is LEGAL and routes to the joint solver.
+
+    The pre-D2-3 assertion (cycle -> ValueError 'Cyclic') is retired here — a
+    cyclic SCC is now the joint fixed point, solved through
+    ``solve_multi_market_scenario``'s guarded branch. Two symmetric interior
+    threshold markets M1<->M2 (mac_cost, phi=0.5 each => loop gain g=0.25 < 1)
+    converge; the full hand-value + acyclic-control coverage lives in
+    ``tests/engine/test_joint_dispatch.py``.
+    """
+    m1 = _market_b_body()
+    m1["market_id"] = "M1"
+    m1["years"][0]["participants"][0]["name"] = "M1_firm"
+    m2 = _market_b_body()
+    m2["market_id"] = "M2"
+    m2["years"][0]["participants"][0]["name"] = "M2_firm"
     config = {
         "scenarios": [
             {
                 "name": "cyc",
-                "markets": [a, b],
+                "markets": [m1, m2],
                 "links": [
-                    {**_mac_link(), "target_participants": ["A_firm"], "target_technologies": ["block"], "from_market": "B", "to_market": "A"},
-                    _mac_link(),
+                    {"from_market": "M1", "to_market": "M2", "channel": "mac_cost", "phi": PHI,
+                     "phi_unit": "1/1", "target_participants": ["M2_firm"], "target_technologies": ["block"]},
+                    {"from_market": "M2", "to_market": "M1", "channel": "mac_cost", "phi": PHI,
+                     "phi_unit": "1/1", "target_participants": ["M1_firm"], "target_technologies": ["block"]},
                 ],
             }
         ]
     }
-    with pytest.raises(ValueError, match="Cyclic"):
-        run_simulation_from_config(config)
+    summary, _ = run_simulation_from_config(config)  # no raise — cycles are legal now
+    assert "Joint Converged" in summary.columns  # cyclic rows carry the guarded columns
+    assert set(summary["Market"]) == {"M1", "M2"}
+    assert all(summary["Joint Converged"] == 1.0)
 
 
 def test_events_on_multi_market_raises_e7() -> None:

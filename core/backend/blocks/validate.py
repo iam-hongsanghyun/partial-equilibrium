@@ -1,5 +1,6 @@
-"""Structural graph validation — rules R1-R36 (``docs/blocks-composition-rules.md``
-R1-R33; ``docs/platform-spec-d0-d1.md`` §3/§7 R34-R36).
+"""Structural graph validation — rules R1-R37 (``docs/blocks-composition-rules.md``
+R1-R33; ``docs/platform-spec-d0-d1.md`` §3/§7 R34-R36;
+``docs/joint-equilibrium-plan.md`` §4 R34-flip + R37).
 
 Value-level validation (numeric ranges, enum membership, cross-field
 consistency once trajectories are applied, ...) is delegated to
@@ -19,17 +20,25 @@ see ``solvers/simulation.py`` and ``tests/test_msr_ccr_composition.py``), so
 R10 is now ALLOWED — this module intentionally emits nothing for it. Do not
 resurrect it as an error without re-breaking F1 first.
 
-R34-R36 (D1-4, ``docs/platform-plan-d0-d1.md`` D1 "GRAPH DISENTANGLEMENT";
-binding spec ``docs/platform-spec-d0-d1.md`` §3 rule texts, §7 E8) are
-GRAPH-GLOBAL, not per-market: a ``market_link`` edge crosses two
-``carbon_market`` nodes, so they run once per graph (:func:`_check_market_links`),
-mirroring ``_check_policy_policy_edges``/``_check_unconnected_nodes`` rather
-than the per-market ``_rule_r*`` family below. They are DELIBERATELY
-redundant with engine/config-tier enforcement (``engine/links.py``'s
-``topological_market_order`` for R34's cycle check; ``modules/market_links/
-backend/plugin.py``'s ``validate_links`` for R35's channel whitelist and
-R36's price_unit check) — the same "check early, structurally, before
-compile" doctrine every other R-rule here already follows.
+R34-R37 (D1-4, ``docs/platform-plan-d0-d1.md`` D1 "GRAPH DISENTANGLEMENT";
+binding spec ``docs/platform-spec-d0-d1.md`` §3 rule texts, §7 E8; D2-3 flip
+``docs/joint-equilibrium-plan.md`` §4) are GRAPH-GLOBAL, not per-market: a
+``market_link`` edge crosses two ``carbon_market`` nodes, so they run once per
+graph (:func:`_check_market_links`), mirroring ``_check_policy_policy_edges``/
+``_check_unconnected_nodes`` rather than the per-market ``_rule_r*`` family
+below. They are DELIBERATELY redundant with engine/config-tier enforcement
+(``modules/market_links/backend/plugin.py``'s ``validate_links`` for R35's
+channel whitelist and R36's price_unit check) — the same "check early,
+structurally, before compile" doctrine every other R-rule here already follows.
+
+R34 FLIP (D2-3): a cycle is NO LONGER an error — a cyclic SCC is the joint fixed
+point (``engine/joint.py``), LEGAL and solved by ``solve_multi_market_scenario``'s
+guarded branch. R34 now only rejects a malformed ``market_link`` node
+(cardinality) and a self-link (own-price feedback is the elastic-baseline
+overlay, not an outer loop — R36/V-D2-7 territory, kept here). R37 (NEW): a
+cyclic SCC containing a banking or discrete-adoption (investment) market run
+UNDAMPED (relaxation == 1.0) is a WARNING — the floor-cancellation lesson
+generalized (undamped + discrete/banking is the known oscillation hazard).
 
 Dependency law: this module imports only ``ets.blocks`` siblings and stdlib.
 """
@@ -192,13 +201,26 @@ def _check_unconnected_nodes(graph: Graph, issues: list[ValidationIssue]) -> Non
             )
 
 
-# ── market links: R34 (DAG), R35 (channel whitelist + duplicates),
-#    R36 (unit declarations) — docs/platform-spec-d0-d1.md §3, §7 ─────────
+# ── market links: R34 (well-formed link nodes; cycles LEGAL, D2-3), R35
+#    (channel whitelist + duplicates), R36 (unit declarations), R37 (undamped
+#    cyclic hazard) — docs/platform-spec-d0-d1.md §3, §7; joint-equilibrium-plan
+#    §4 ────────────────────────────────────────────────────────────────────
 
 # Mirrors modules/market_links/backend/plugin.py:ALLOWED_LINK_CHANNELS and
 # catalogue.py's own _LINK_CHANNELS — duplicated here only as strings, per
 # this module's dependency law (stdlib + blocks siblings only).
 _LINK_CHANNELS = frozenset({"mac_cost", "invest_break_even"})
+
+# Mirrors engine/joint.py:JOINT_DEFAULTS["relaxation"] as a bare literal (this
+# module may not import the engine — dependency law). w = 1.0 is UNDAMPED
+# Gauss-Seidel; the damped default (0.5) is safe. R37 reads a per-cycle
+# ``relaxation`` hint off the market_link nodes (the interim carrier until the
+# D2-4 joint_solver composer node lands) and warns only when it is exactly 1.0
+# on a cyclic SCC that also carries a banking / discrete-adoption market.
+_JOINT_RELAXATION_DEFAULT = 0.5
+_JOINT_RELAXATION_UNDAMPED = 1.0
+_BANKING_PF_BLOCK = "rubin_schennach_banking"
+_INVESTMENT_POLICY_BLOCK = "endogenous_investment"
 
 
 def _market_link_nodes(graph: Graph) -> list[Node]:
@@ -228,41 +250,29 @@ def _resolve_link_endpoint_markets(graph: Graph, link_node: Node) -> tuple[str, 
     return from_edges[0].source, link_edges[0].target
 
 
-def _rule_r34_link_dag(graph: Graph, link_nodes: list[Node], issues: list[ValidationIssue]) -> None:
-    r"""R34: the link graph must be a DAG (self-links and cycles rejected).
+def _market_link_edges(
+    graph: Graph, link_nodes: list[Node], issues: list[ValidationIssue]
+) -> list[tuple[str, str, Node]]:
+    """Resolve every well-formed ``market_link`` node to a ``(from, to, node)`` edge.
 
-    Graph-tier cycle detection, redundant by design with the engine's own
-    enforcement (``engine/links.py:topological_market_order``, which owns
-    the full Kahn's-algorithm ordering docstring — LaTeX/ASCII/symbols —
-    this function mirrors only the DETECTION half, since ``validate_graph``
-    reports issues rather than computing a solve order):
-
-    Algorithm:
-        LaTeX:
-        $$ \text{in-deg}(v) = \big|\{(u,v) : u \to v \in E\}\big|, \qquad
-           R_0 = \{v : \text{in-deg}(v) = 0\} $$
-        $$ |{\textstyle\bigcup} \text{visited}| \neq |V|
-           \;\Longrightarrow\; \text{a cycle remains among the unvisited} $$
-
-        ASCII fallback:
-            E = { (from, to) } deduped per market_link edge
-            in_deg[v] = number of distinct edges into v
-            ready = { v : in_deg[v] == 0 }
-            while ready: pop v; emit v; in_deg[w] -= 1 for each edge (v, w);
-                         w joins ready when in_deg[w] hits 0
-            visited != |V|  =>  a cycle remains among the unvisited markets
-
-        Symbols:
-            V : the carbon_market node ids [-]
-            E : market_link (from, to) edges, deduped per pair [-]
+    Reports R34 for a malformed cardinality (not exactly one ``from`` + one
+    ``link`` edge) and for a self-link (own-price feedback is the elastic-baseline
+    overlay computed inside the single Brent solve, never an outer loop — a
+    self-link duplicates it and creates a degenerate size-1 SCC, V-D2-7). A
+    dangling/port-mismatched endpoint is skipped (R3 already attributes it).
+    Cross-market edges (``from != to``) are RETURNED — cycles among them are
+    LEGAL (the D2-3 R34 flip; a cyclic SCC is the joint fixed point).
 
     Args:
         graph: The drawn block graph.
         link_nodes: Every ``market_link`` node.
         issues: Accumulating issue list (mutated in place).
+
+    Returns:
+        The valid cross-market link edges as ``(source_id, target_id, link_node)``.
     """
     market_ids = {n.id for n in graph.nodes if n.block == "carbon_market"}
-    edges: list[tuple[str, str]] = []
+    edges: list[tuple[str, str, Node]] = []
     for link_node in link_nodes:
         endpoints = _resolve_link_endpoint_markets(graph, link_node)
         if endpoints is None:
@@ -284,39 +294,87 @@ def _rule_r34_link_dag(graph: Graph, link_nodes: list[Node], issues: list[Valida
                 ValidationIssue(
                     "error", "R34",
                     f"market_link '{link_node.id}': 'from' and 'link' both resolve to "
-                    f"market '{source_id}' — self-links are forbidden.",
+                    f"market '{source_id}' — self-links are forbidden (own-price feedback "
+                    "is the elastic-baseline overlay, not an outer loop; V-D2-7).",
                     node=link_node.id,
                 )
             )
             continue
-        edges.append((source_id, target_id))
+        edges.append((source_id, target_id, link_node))
+    return edges
 
+
+def _cyclic_scc_members(market_ids: set[str], edges: list[tuple[str, str, Node]]) -> list[list[str]]:
+    """Return the cyclic SCCs (size >= 2) of the market_link digraph, deterministically.
+
+    Mutual-reachability grouping (stdlib only, this module's dependency law — it
+    may NOT import ``engine.scc``): two distinct markets share a cyclic SCC iff
+    each reaches the other along link edges, and a market is in a cycle iff it
+    reaches itself. Every returned SCC is sorted; the list is sorted by first
+    member — a pure function of the graph (the ULP-amplification determinism
+    lesson, mirrored at the graph tier).
+
+    Args:
+        market_ids: Every ``carbon_market`` node id.
+        edges: Cross-market ``(source, target, node)`` link edges.
+
+    Returns:
+        Cyclic SCCs, each a sorted list of >= 2 market ids.
+    """
     successors: dict[str, set[str]] = {m: set() for m in market_ids}
-    for source_id, target_id in edges:
-        successors[source_id].add(target_id)
-    in_degree: dict[str, int] = {m: 0 for m in market_ids}
-    for targets in successors.values():
-        for target_id in targets:
-            in_degree[target_id] += 1
+    for source_id, target_id, _node in edges:
+        if source_id in successors and target_id in successors:
+            successors[source_id].add(target_id)
 
-    ready = [m for m in sorted(market_ids) if in_degree[m] == 0]
-    visited = 0
-    while ready:
-        node_id = ready.pop()
-        visited += 1
-        for target_id in sorted(successors[node_id]):
-            in_degree[target_id] -= 1
-            if in_degree[target_id] == 0:
-                ready.append(target_id)
-    if visited != len(market_ids):
-        cyclic = sorted(m for m in market_ids if in_degree[m] > 0)
-        issues.append(
-            ValidationIssue(
-                "error", "R34",
-                f"Market link graph has a cycle among {cyclic} — D1 solves DAGs only "
-                "(cyclic links are the joint fixed point, D2).",
-            )
-        )
+    def _reach(start: str) -> set[str]:
+        seen: set[str] = set()
+        stack = list(successors[start])
+        while stack:
+            node_id = stack.pop()
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            stack.extend(successors[node_id])
+        return seen
+
+    reachable = {m: _reach(m) for m in market_ids}
+    in_cycle = {m for m in market_ids if m in reachable[m]}
+    sccs: list[list[str]] = []
+    assigned: set[str] = set()
+    for m in sorted(in_cycle):
+        if m in assigned:
+            continue
+        group = sorted(n for n in in_cycle if n in reachable[m] and m in reachable[n])
+        assigned.update(group)
+        if len(group) >= 2:
+            sccs.append(group)
+    return sccs
+
+
+def _rule_r34_link_wellformed(
+    graph: Graph, link_nodes: list[Node], issues: list[ValidationIssue]
+) -> list[tuple[str, str, Node]]:
+    r"""R34 (D2-3 FLIP): market_link nodes must be well-formed; cycles are LEGAL.
+
+    A cycle is no longer an error — a cyclic SCC is the joint fixed point solved
+    by ``engine/joint.py`` (the R34 flip, ``docs/joint-equilibrium-plan.md`` §4).
+    R34 now asserts only that each ``market_link`` node is well-formed
+    (cardinality) and non-self (:func:`_market_link_edges`), and that any cyclic
+    SCC has RESOLVABLE outer-loop settings — which it always does, since the
+    ``joint_solver`` block is fully defaulted (absent ⇒ engine defaults apply;
+    ``config_io.builder.normalize_joint_solver``), so a legal cycle emits NO
+    R34 issue. The graph carries no joint_solver node yet (that is D2-4), so
+    settings are trivially resolvable here.
+
+    Args:
+        graph: The drawn block graph.
+        link_nodes: Every ``market_link`` node.
+        issues: Accumulating issue list (mutated in place).
+
+    Returns:
+        The valid cross-market link edges (for R37's cycle detection).
+    """
+    return _market_link_edges(graph, link_nodes, issues)
 
 
 def _rule_r35_link_whitelist(graph: Graph, link_nodes: list[Node], issues: list[ValidationIssue]) -> None:
@@ -388,13 +446,82 @@ def _rule_r36_link_units(graph: Graph, link_nodes: list[Node], issues: list[Vali
             )
 
 
+def _market_pf_block(graph: Graph, market_id: str) -> str | None:
+    """Return a market's attached price-formation block id, or ``None`` if unresolved."""
+    pf_edges = graph.edges_into(market_id, "price_formation")
+    if len(pf_edges) != 1:
+        return None
+    pf_node = graph.node(pf_edges[0].source)
+    return pf_node.block if pf_node is not None else None
+
+
+def _market_has_discrete_adoption(graph: Graph, market_id: str) -> bool:
+    """Whether a market carries a discrete-adoption (endogenous_investment) policy."""
+    return any(
+        (n := graph.node(e.source)) is not None and n.block == _INVESTMENT_POLICY_BLOCK
+        for e in graph.edges_into(market_id, "policies")
+    )
+
+
+def _rule_r37_undamped_cyclic_hazard(
+    graph: Graph, edges: list[tuple[str, str, Node]], issues: list[ValidationIssue]
+) -> None:
+    r"""R37 (NEW, D2-3): warn on an UNDAMPED cyclic SCC over a banking/discrete market.
+
+    The floor-cancellation lesson generalized (``docs/joint-equilibrium.md`` §3,
+    §3a; ``docs/joint-equilibrium-plan.md`` §4): undamped Gauss-Seidel
+    (relaxation == 1.0) over a cyclic SCC that contains a banking market
+    (``rubin_schennach_banking``) OR a discrete-adoption market
+    (``endogenous_investment``) is the known oscillation hazard — a discrete /
+    banking step demand under w = 1 is exactly the regime the damping default
+    (0.5) exists to tame. A WARNING (never an error — the model still runs, and
+    the non-convergence + cycle-detected diagnostics fire at solve time). The
+    per-cycle relaxation is read off the intra-SCC ``market_link`` node params
+    (the interim carrier until the D2-4 ``joint_solver`` composer node); absent ⇒
+    the damped default (0.5) ⇒ silent.
+
+    Args:
+        graph: The drawn block graph.
+        edges: The valid cross-market link edges (from :func:`_rule_r34_link_wellformed`).
+        issues: Accumulating issue list (mutated in place).
+    """
+    market_ids = {n.id for n in graph.nodes if n.block == "carbon_market"}
+    for scc in _cyclic_scc_members(market_ids, edges):
+        scc_set = set(scc)
+        has_banking = any(_market_pf_block(graph, m) == _BANKING_PF_BLOCK for m in scc)
+        has_discrete = any(_market_has_discrete_adoption(graph, m) for m in scc)
+        if not (has_banking or has_discrete):
+            continue
+        # Resolve the SCC's relaxation off its intra-SCC link nodes (max declared,
+        # default damped): the SCC is undamped iff a cycle link sets w == 1.0.
+        relaxations = [
+            float(node.params.get("relaxation", _JOINT_RELAXATION_DEFAULT))
+            for source_id, target_id, node in edges
+            if source_id in scc_set and target_id in scc_set
+        ]
+        resolved = max(relaxations, default=_JOINT_RELAXATION_DEFAULT)
+        if resolved != _JOINT_RELAXATION_UNDAMPED:
+            continue
+        kind = "banking" if has_banking else "discrete-adoption"
+        issues.append(
+            ValidationIssue(
+                "warning", "R37",
+                f"Cyclic market SCC {scc} runs UNDAMPED (relaxation=1.0) over a {kind} "
+                "market — undamped Gauss-Seidel on a discrete/banking step demand is the "
+                "known oscillation hazard (the floor-cancellation lesson generalized). "
+                "Set a damped relaxation in (0, 1) (default 0.5) for the joint SCC loop.",
+            )
+        )
+
+
 def _check_market_links(graph: Graph, issues: list[ValidationIssue]) -> None:
     link_nodes = _market_link_nodes(graph)
     if not link_nodes:
         return
-    _rule_r34_link_dag(graph, link_nodes, issues)
+    edges = _rule_r34_link_wellformed(graph, link_nodes, issues)
     _rule_r35_link_whitelist(graph, link_nodes, issues)
     _rule_r36_link_units(graph, link_nodes, issues)
+    _rule_r37_undamped_cyclic_hazard(graph, edges, issues)
 
 
 # ── per-market checks ────────────────────────────────────────────────────

@@ -216,6 +216,109 @@ def normalize_config(config: dict[str, Any]) -> dict[str, Any]:
 
 _ALLOWED_MSR_MODES = {"bank_threshold", "price_band", "surplus_rule", "hybrid"}
 
+# D2 joint-solver outer-loop defaults (docs/joint-equilibrium-plan.md §4). MIRRORS
+# ``pe.engine.joint.JOINT_DEFAULTS`` as bare literals — config_io (T1) may not
+# import the engine (T3), so this is duplicated here exactly as ``validate.py``
+# mirrors the link-channel whitelist under its own dependency law. The one
+# source of truth for the RUNTIME defaults is still ``engine.joint``; this block
+# only normalizes what a scenario DECLARES, and dispatch passes ``None`` for any
+# absent setting so the engine's own default applies (the D1 COMPAT RULE: an
+# absent ``joint_solver`` block means "no joint solver declared", never an
+# injected default — the whole key is omitted from the normalized document).
+_JOINT_SOLVER_DEFAULTS: dict[str, Any] = {
+    # w — relaxation weight [dimensionless], (0, 1]; 0.5 damps the oscillatory band.
+    "relaxation": 0.5,
+    # per-market relative (dimensionless) convergence tolerance (§5 default 1e-4).
+    "tolerance": 1e-4,
+    # outer-sweep cap; the banking-cyclic worst-case rail (§6 V-D2-8: ~50 for ρ≈0.83).
+    "max_iterations": 50,
+    # sweep scheme; Gauss-Seidel is the v1 default (Jacobi is D3 — parallelism only).
+    "sweep": "gauss_seidel",
+    # warm-start seed; the D1 one-way seed (back-links cut) is the blessed default.
+    "initial_guess": "one_way_seed",
+}
+_JOINT_SOLVER_ALLOWED_SWEEPS = {"gauss_seidel"}
+_JOINT_SOLVER_ALLOWED_SEEDS = {"one_way_seed", "cold"}
+
+
+def normalize_joint_solver(raw: Mapping[str, Any] | None, *, label: str) -> dict[str, Any] | None:
+    """Normalize an optional scenario-level ``joint_solver`` block (D2-3, plan §4).
+
+    The ONLY schema addition of D2. A cyclic SCC's outer damped-Gauss-Seidel loop
+    (``pe.engine.joint.solve_joint_scc``) reads its settings here; every key is
+    OPTIONAL and defaulted from :data:`_JOINT_SOLVER_DEFAULTS`. Absence is
+    inertness: ``raw is None`` returns ``None`` and the caller emits NO
+    ``joint_solver`` key, so a single-market / acyclic / D1 config normalizes
+    byte-identically to today (the D1 COMPAT RULE, mirroring
+    ``_OPTIONAL_MARKET_BODY_KEYS``). When present, every setting is validated
+    with a loud ``ValueError`` — never a silent clamp.
+
+    Args:
+        raw: The raw ``joint_solver`` block (a mapping) or ``None`` when the
+            scenario declares none.
+        label: Error-message prefix, e.g. ``"Scenario 'S'"``.
+
+    Returns:
+        The normalized settings dict ``{relaxation, tolerance, max_iterations,
+        sweep, initial_guess}`` (all keys present, defaulted), or ``None`` when
+        ``raw`` is ``None``.
+
+    Raises:
+        ValueError: ``raw`` is not a mapping; ``relaxation`` outside ``(0, 1]``;
+            non-positive ``tolerance``/``atol``; non-positive ``max_iterations``;
+            an unknown ``sweep`` (only ``gauss_seidel`` in v1 — Jacobi is D3) or
+            ``initial_guess``.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{label}: joint_solver, if present, must be an object.")
+
+    relaxation = float(raw.get("relaxation", _JOINT_SOLVER_DEFAULTS["relaxation"]))
+    if not 0.0 < relaxation <= 1.0:
+        raise ValueError(
+            f"{label}: joint_solver.relaxation must be in (0, 1], got {relaxation}."
+        )
+
+    # ``tolerance`` is canonical; ``atol`` is accepted as an alias (plan §4).
+    tol_raw = raw.get("tolerance", raw.get("atol", _JOINT_SOLVER_DEFAULTS["tolerance"]))
+    tolerance = float(tol_raw)
+    if tolerance <= 0.0:
+        raise ValueError(
+            f"{label}: joint_solver.tolerance (or atol) must be > 0, got {tolerance}."
+        )
+
+    max_iterations = int(raw.get("max_iterations", _JOINT_SOLVER_DEFAULTS["max_iterations"]))
+    if max_iterations < 1:
+        raise ValueError(
+            f"{label}: joint_solver.max_iterations must be a positive integer, "
+            f"got {max_iterations}."
+        )
+
+    sweep = str(raw.get("sweep", _JOINT_SOLVER_DEFAULTS["sweep"])).strip()
+    if sweep not in _JOINT_SOLVER_ALLOWED_SWEEPS:
+        raise ValueError(
+            f"{label}: joint_solver.sweep must be one of "
+            f"{sorted(_JOINT_SOLVER_ALLOWED_SWEEPS)} (Jacobi is D3), got '{sweep}'."
+        )
+
+    initial_guess = str(
+        raw.get("initial_guess", _JOINT_SOLVER_DEFAULTS["initial_guess"])
+    ).strip()
+    if initial_guess not in _JOINT_SOLVER_ALLOWED_SEEDS:
+        raise ValueError(
+            f"{label}: joint_solver.initial_guess must be one of "
+            f"{sorted(_JOINT_SOLVER_ALLOWED_SEEDS)}, got '{initial_guess}'."
+        )
+
+    return {
+        "relaxation": relaxation,
+        "tolerance": tolerance,
+        "max_iterations": max_iterations,
+        "sweep": sweep,
+        "initial_guess": initial_guess,
+    }
+
 
 def _validated_msr_mode(scenario: dict[str, Any], label: str) -> str:
     mode = str(scenario.get("msr_mode") or "bank_threshold").strip()
@@ -480,7 +583,15 @@ def _normalize_markets_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
 
     links = validate_links(raw_scenario.get("links") or [], bodies_by_id)
 
-    return {"name": name, "markets": markets, "links": links}
+    normalized: dict[str, Any] = {"name": name, "markets": markets, "links": links}
+    # D2 joint-solver block (plan §4) — emitted ONLY when the scenario declares
+    # one, so an acyclic / D1 multi-market config stays byte-identical (the D1
+    # COMPAT RULE; mirrors the _OPTIONAL_MARKET_BODY_KEYS "default absent" pattern).
+    if raw_scenario.get("joint_solver") is not None:
+        normalized["joint_solver"] = normalize_joint_solver(
+            raw_scenario["joint_solver"], label=f"Scenario '{name}'"
+        )
+    return normalized
 
 
 def normalize_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:

@@ -33,7 +33,12 @@ from typing import Any
 import pytest
 
 from pe.blocks import graph_from_config
-from pe.config_io import iter_market_bodies, normalize_config, normalize_scenario
+from pe.config_io import (
+    iter_market_bodies,
+    normalize_config,
+    normalize_joint_solver,
+    normalize_scenario,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES_DIR = REPO_ROOT / "examples"
@@ -325,3 +330,75 @@ def test_normalize_scenario_markets_key_still_raises_on_invalid_links() -> None:
     scenario = _two_market_scenario(omit_link_keys=("channel",))
     with pytest.raises(ValueError, match="channel"):
         normalize_scenario(scenario)
+
+
+# ── (e) D2-3: the optional scenario `joint_solver` block (plan §4) ──────────
+# The ONLY D2 schema addition. Absent => NO key emitted (byte-identical to a
+# D1 config); present => normalizes with all keys defaulted and round-trips.
+
+
+def test_joint_solver_absent_emits_no_key() -> None:
+    """INERTNESS: a multi-market scenario without joint_solver never gains the key
+    (the D1 COMPAT RULE — absent means 'no joint solver declared', not a default)."""
+    normalized = normalize_scenario(_two_market_scenario())
+    assert "joint_solver" not in normalized
+    assert set(normalized) == {"name", "markets", "links"}
+
+
+def test_joint_solver_absent_on_flat_single_market_emits_no_key() -> None:
+    """A flat single-market scenario likewise never emits a joint_solver key."""
+    flat = {"name": "Flat", **_market_body(
+        [{"name": "P", "initial_emissions": 50.0, "penalty_price": 100.0}]
+    )}
+    normalized = normalize_scenario(flat)
+    assert "joint_solver" not in normalized
+
+
+def test_joint_solver_present_normalizes_and_round_trips() -> None:
+    """PRESENT (even empty {}) => a fully-defaulted settings dict, round-trippable."""
+    scenario = _two_market_scenario()
+    scenario["joint_solver"] = {}
+    normalized = normalize_scenario(scenario)
+    assert normalized["joint_solver"] == {
+        "relaxation": 0.5,
+        "tolerance": 1e-4,
+        "max_iterations": 50,
+        "sweep": "gauss_seidel",
+        "initial_guess": "one_way_seed",
+    }
+    # Round-trips through JSON unchanged.
+    assert json.loads(json.dumps(normalized))["joint_solver"] == normalized["joint_solver"]
+
+
+def test_joint_solver_explicit_values_preserved() -> None:
+    scenario = _two_market_scenario()
+    scenario["joint_solver"] = {"relaxation": 0.3, "max_iterations": 80, "atol": 1e-6}
+    js = normalize_scenario(scenario)["joint_solver"]
+    assert js["relaxation"] == 0.3
+    assert js["max_iterations"] == 80
+    assert js["tolerance"] == 1e-6  # `atol` accepted as an alias for `tolerance`
+
+
+def test_joint_solver_tolerance_takes_precedence_over_atol() -> None:
+    assert normalize_joint_solver({"tolerance": 1e-5, "atol": 1e-3}, label="S")["tolerance"] == 1e-5
+
+
+def test_joint_solver_none_returns_none() -> None:
+    assert normalize_joint_solver(None, label="S") is None
+
+
+@pytest.mark.parametrize(
+    "block, match",
+    [
+        ({"relaxation": 0.0}, "relaxation must be in"),
+        ({"relaxation": 1.5}, "relaxation must be in"),
+        ({"tolerance": 0.0}, "must be > 0"),
+        ({"max_iterations": 0}, "positive integer"),
+        ({"sweep": "jacobi"}, "sweep must be one of"),
+        ({"initial_guess": "warm"}, "initial_guess must be one of"),
+    ],
+)
+def test_joint_solver_bounds_validated(block: dict[str, Any], match: str) -> None:
+    """Every joint_solver setting is validated loudly — never a silent clamp."""
+    with pytest.raises(ValueError, match=match):
+        normalize_joint_solver(block, label="Scenario 'S'")

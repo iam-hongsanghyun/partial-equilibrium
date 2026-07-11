@@ -31,10 +31,25 @@ closure; D2-5 will wrap that same closure in the investment-adoption middle loop
 outer loop — the hook is deliberately left clean here and NOT implemented.
 
 Termination discipline (banking/coupling precedent, §6 V-D2-8). A non-converged
-SCC is NEVER reported as an equilibrium: a hard ``max_iterations`` cap or a
-confirmed oscillation logs a ``warning`` and returns the last iterate stamped
-``Joint Converged = 0.0``. Success stamps ``Joint Converged = 1.0`` plus the
-outer-iteration count, the final max normalized change, and the cycle period.
+SCC is NEVER reported as an equilibrium: the loop terminates ONLY on convergence
+(``delta < tol``) or the hard ``max_iterations`` cap, logs a ``warning``, and
+returns the last iterate stamped ``Joint Converged = 0.0``. Success stamps
+``Joint Converged = 1.0`` plus the outer-iteration count, the final max
+normalized change, and the cycle period.
+
+Cycle detection is DIAGNOSTIC-ONLY and NON-TERMINATING (``docs/joint-equilibrium.md``
+§3a, RATIFIED 2026-07-11, four binding conditions). The folding signature (an
+iterate landing closer to its 2-ago position than its 1-ago one — a period-2
+anti-phase mode) fires for a real scalar mode ``P_k = P* + λ^k e_0`` iff
+``λ < -1/2``; the band ``-1 < λ < -1/2`` CONVERGES yet folds, so folding MUST
+NOT abort the loop (an early break there would wrongly stamp a convergent SCC
+``Converged = 0``). The period is DERIVED ONCE at loop exit, terminally: a
+converged run reports period 0 (no latch — a transient descent alternation is
+not a reportable cycle); a non-converged run reports period 2 only when folding
+persisted over the FINAL sweeps (``fold_run >= _TERMINAL_FOLD_SWEEPS`` at
+cap-exit), else period 0. v1 detection is period-2 ONLY: a higher-period or
+complex-eigenvalue spiral in a >=3-market SCC correctly reads ``Converged = 0``
+with period 0 (true non-convergence, not a false negative).
 
 References:
     docs/joint-equilibrium.md §1 (equilibrium object), §2 (contraction ρ(J)<1),
@@ -90,6 +105,16 @@ JOINT_DEFAULTS = {
     # driven to the oversupply boundary P -> 0 stays well-posed (§5).
     "reference_floor": 1.0,
 }
+
+# Cycle-detection constants (docs/joint-equilibrium.md §3a). NOT tunable knobs —
+# they encode the ratified predicate, so they live as named module constants
+# (no bare magic in the loop body):
+#   * _PERIOD_2 — the only period the v1 detector reports (a period-2 anti-phase
+#     2-cycle); higher-period / complex spirals report period 0 (condition 4).
+#   * _TERMINAL_FOLD_SWEEPS — consecutive folding sweeps required AT cap-exit to
+#     call the terminal mode period-2 (condition 3: asymptotic, not transient).
+_PERIOD_2 = 2
+_TERMINAL_FOLD_SWEEPS = 2
 
 __all__ = [
     "JOINT_DEFAULTS",
@@ -212,15 +237,18 @@ def solve_joint_scc(
 
         ASCII fallback:
             P0 = initial_guess (D1 one-way seed) or empty (seed = back-links cut)
+            fold_run = 0
             for k = 1 .. max_iterations:
                 swept = gauss_seidel_sweep(P_{k-1})        # in-sweep updates
                 P_k   = (1-w)*P_{k-1} + w*swept            # relax whole vector
                 d1    = max_m per_market_relative_change(P_{k-1,m}, P_{k,m})
-                if d1 < tol: return CONVERGED
-                # cycle: closer to the 2-ago iterate than the 1-ago one = folding
-                if k >= 3 and rel_dist(P_{k-2}, P_k) < d1  (2 in a row):
-                    return NOT-CONVERGED, cycle_period = 2
-            return NOT-CONVERGED (hard cap)
+                if d1 < tol: converged = True; break       # ONLY exit besides cap
+                # folding = closer to the 2-ago iterate than the 1-ago one.
+                # DIAGNOSTIC ONLY — NEVER breaks the loop (§3a condition 1).
+                if k >= 3 and rel_dist(P_{k-2}, P_k) < d1: fold_run += 1
+                else:                                       fold_run = 0
+            # terminal period derivation, evaluated ONCE at exit (§3a cond. 2-4):
+            cycle_period = 2 if (not converged and fold_run >= 2) else 0
 
         Symbols (units):
             P_m(t)      : market m's delivered price in year t   [currency_m/unit_m]
@@ -237,17 +265,31 @@ def solve_joint_scc(
     cycle edge is inert (φ=0) the seed IS the answer and the loop converges in
     ONE iteration (anchor J3).
 
-    Cycle detection (§3; a generalization of the spec's scalar "2-ago distance
-    ≈ 0" heuristic). Tracks the relative distance to the 2-ago iterate
-    ``P_{k-2}`` alongside the 1-ago change ``δ_k``: when the iterate is CLOSER
-    to its 2-ago position than to its 1-ago position (``dist(P_{k-2}, P_k) <
-    δ_k``) for two consecutive sweeps while not converging, the iterate is
-    folding back on itself — a period-2 oscillation (``Joint Cycle Detected =
-    2``). This one test covers BOTH a BOUNDED cycle (``dist(P_{k-2}, P_k) → 0``,
-    the spec's literal case) AND a DIVERGING oscillation (real eigenvalue < -1,
-    anchor J2 at w=1, where the 2-ago distance is small-but-nonzero, not ≈ 0) —
-    monotone divergence (``dist(P_{k-2}, P_k) > δ_k``) is correctly NOT flagged
-    and asks for more damping via a smaller w, not more iterations.
+    Cycle detection (§3a, RATIFIED — four binding conditions; DIAGNOSTIC-ONLY,
+    NON-TERMINATING). Tracks the relative distance to the 2-ago iterate
+    ``P_{k-2}`` alongside the 1-ago change ``δ_k``: the iterate FOLDS when it is
+    closer to its 2-ago position than its 1-ago position (``dist(P_{k-2}, P_k) <
+    δ_k``). For a real scalar mode ``P_k = P* + λ^k e_0`` this fires **iff λ <
+    -1/2**, which partitions the non-converged set (|λ| ≥ 1) exactly — λ ≤ -1
+    (bounded cycle + diverging oscillation) folds; λ ≥ 1 (monotone crawl) does
+    not — BUT it ALSO fires in the CONVERGING band -1 < λ < -1/2 (|λ| < 1). So
+    folding CANNOT terminate the loop (condition 1): an early break in that band
+    would stamp a convergent SCC ``Joint Converged = 0``. This loop only
+    ACCUMULATES the run of consecutive folds (``fold_run``); the period is
+    derived ONCE at loop exit (conditions 2-4):
+
+    * converged (any reason it converged) ⇒ ``cycle_period = 0`` — NO latch; a
+      transient descent alternation is not a reportable cycle, and the period is
+      meaningful only when ``Joint Converged = 0``;
+    * NOT converged AND folding persisted over the FINAL sweeps
+      (``fold_run >= _TERMINAL_FOLD_SWEEPS`` at cap-exit) ⇒ ``cycle_period = 2``
+      — a terminal period-2 oscillation (both the BOUNDED λ = -1 cycle and the
+      DIVERGING λ < -1 oscillation, anchor J2 at w=1), asking for more damping
+      (a smaller w), not more iterations;
+    * NOT converged AND non-folding at exit (monotone crawl, or a higher-period
+      / complex-eigenvalue spiral in a >=3-market SCC) ⇒ ``cycle_period = 0`` —
+      v1 detection is period-2 ONLY (condition 4); this is a TRUE
+      non-convergence with no reportable period, not a false negative.
 
     Args:
         scc_markets: The SCC's market ids in the deterministic SWEEP ORDER
@@ -319,7 +361,6 @@ def solve_joint_scc(
     )
 
     fold_run = 0
-    cycle_period = 0
     converged = False
     delta = 0.0
     iterations = 0
@@ -343,34 +384,46 @@ def solve_joint_scc(
             previous = current
             break
 
+        # Folding bookkeeping — DIAGNOSTIC-ONLY, NON-TERMINATING (§3a condition 1).
+        # The iterate folds toward its 2-ago position (the period-2 signature)
+        # iff it is closer to P_{k-2} than to P_{k-1}; for a real scalar mode
+        # this fires iff λ < -1/2, INCLUDING the CONVERGING band -1 < λ < -1/2.
+        # So this MUST NOT break the loop (D2-2's early ``break`` on fold_run >= 2
+        # is the bug named in docs/joint-equilibrium.md §3a). We only accumulate
+        # the consecutive-fold run; the terminal derivation below reads it.
         if two_ago is not None:
             fold = max(max_pathmap_relative_change(two_ago[m], current[m], ref[m]) for m in order)
-            if fold < delta:  # folding back toward the 2-ago iterate: period-2
+            if fold < delta:  # folding back toward the 2-ago iterate
                 fold_run += 1
-                if fold_run >= 2:
-                    cycle_period = 2
-                    previous = current
-                    logger.warning(
-                        "solve_joint_scc: period-2 oscillation on a %d-market SCC "
-                        "(max_normalized_change=%.3e at sweep k=%d); w=%.3g insufficient "
-                        "— NOT an equilibrium. Reduce w (more damping).",
-                        len(order),
-                        delta,
-                        k,
-                        w,
-                    )
-                    break
             else:
                 fold_run = 0
 
         two_ago = previous
         previous = current
 
-    if not converged and cycle_period == 0:
+    # Terminal cycle-period derivation (§3a conditions 2-4), evaluated ONCE at
+    # loop exit — never latched mid-descent. Converged ⇒ period 0 (no latch).
+    # Not converged AND folding persisted over the FINAL sweeps ⇒ terminal
+    # period-2; otherwise (monotone crawl, or a higher-period / complex spiral)
+    # period 0 — a true non-convergence, v1 detection being period-2 ONLY.
+    cycle_period = _PERIOD_2 if (not converged and fold_run >= _TERMINAL_FOLD_SWEEPS) else 0
+
+    if not converged and cycle_period == _PERIOD_2:
+        logger.warning(
+            "solve_joint_scc: period-2 oscillation on a %d-market SCC persisting to the "
+            "max_iterations cap (%d) (max_normalized_change=%.3e); w=%.3g insufficient — "
+            "NOT an equilibrium. Reduce w (more damping).",
+            len(order),
+            cap,
+            delta,
+            w,
+        )
+    elif not converged:
         logger.warning(
             "solve_joint_scc: hit the max_iterations cap (%d) on a %d-market SCC without "
-            "convergence (max_normalized_change=%.3e, no cycle detected — a slow crawl; "
-            "raise max_iterations or check ρ near unit root). NOT an equilibrium.",
+            "convergence (max_normalized_change=%.3e, no period-2 cycle — a slow crawl or "
+            "a higher-period/complex spiral; raise max_iterations or check ρ near unit "
+            "root). NOT an equilibrium.",
             cap,
             len(order),
             delta,

@@ -174,6 +174,48 @@ def test_j2_damping_is_the_remedy_not_iterations() -> None:
     assert damped.converged is True and damped.cycle_period == 0
 
 
+# ── §3a witness: converges WITH alternation in the folding band -1 < λ < -1/2 ──
+# w = 1 (undamped GS), phi_AB = -0.7, phi_BA = 1.0 => loop gain g = -0.7. With
+# w = 1 the coupled Gauss-Seidel eigenvalue IS g = -0.7 (the other is 1-w = 0),
+# so the iterate ALTERNATES (folds: -0.7 < -1/2) yet CONVERGES (|-0.7| < 1).
+# Hand fixed point (alpha_A = alpha_B = 100):
+#   P_A = (100 + (-0.7)*100)/(1 - (-0.7)) = 30/1.7,
+#   P_B = (100 +   1.0 *100)/(1 - (-0.7)) = 200/1.7.
+# This is the RATIFICATION WITNESS (docs/joint-equilibrium.md §3a conditions 1&2):
+# the folding predicate fires every descent sweep, so D2-2's early break on
+# fold_run>=2 would have wrongly stamped Converged=0 here. The terminal
+# derivation must return converged=True, cycle_period=0 (no latch). The existing
+# J2-at-w=0.5 (eigenvalue -0.25) sits in the NON-folding zone (-0.25 > -1/2) and
+# does NOT exercise this band.
+LAMBDA_FOLD_ALPHA = {"A": 100.0, "B": 100.0}
+LAMBDA_FOLD_PHI = {("A", "B"): -0.7, ("B", "A"): 1.0}
+LAMBDA_FOLD_LINKS = [_link("B", "A", -0.7), _link("A", "B", 1.0)]
+
+
+def test_converging_alternation_in_folding_band_reports_no_cycle() -> None:
+    """-1 < λ = -0.7 < -1/2: folds every sweep yet converges => cycle_period 0."""
+    solver = _linear_mac_solver(LAMBDA_FOLD_ALPHA, LAMBDA_FOLD_PHI)
+    result = solve_joint_scc(
+        ["A", "B"],
+        solver,
+        links=LAMBDA_FOLD_LINKS,
+        relaxation=1.0,  # undamped: the coupled eigenvalue is exactly g = -0.7
+        tolerance=1e-12,
+        max_iterations=400,
+    )
+
+    # Conditions 1 & 2: a folding-but-converging run is NOT a reportable cycle.
+    assert result.converged is True
+    assert result.cycle_period == 0
+    assert result.report_columns()["Joint Cycle Detected"] == 0.0
+    # It genuinely ALTERNATED its way there (many sweeps), not a one-shot solve —
+    # this is what makes it the witness for the removed early break.
+    assert result.outer_iterations >= 3
+    # And it reached the exact hand fixed point (a true convergence).
+    np.testing.assert_allclose(result.market_paths["A"][YEAR], 30.0 / 1.7, rtol=0.0, atol=1e-6)
+    np.testing.assert_allclose(result.market_paths["B"][YEAR], 200.0 / 1.7, rtol=0.0, atol=1e-6)
+
+
 # ── J3-flavoured: inert cycle edge collapses to the recursive (D1) answer ─────
 def test_inert_back_edge_seeded_converges_in_one_iteration() -> None:
     """phi_AB = 0 (B->A inert): seeded with the exact answer, converges in 1 sweep.
