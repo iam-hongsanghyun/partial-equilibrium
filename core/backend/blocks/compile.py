@@ -53,6 +53,17 @@ scenario's display name comes from the optional ``scenario_name`` param
 (must agree across the component when set on more than one node; defaults
 to the order-first market's own ``name``).
 
+D2-4 CYCLES-LEGAL (``docs/joint-equilibrium-plan.md`` §4): the ``market_link``
+edges of a component may now form a CYCLE (A↔B). The undirected
+:func:`_connected_components` grouping already puts a back-edge's endpoints in
+one component, so a cyclic component compiles to the SAME ``markets``+``links``
+shape as an acyclic one — the cyclic ``links`` array is emitted VERBATIM (the
+old "cycle → CompileError" is gone; D2-3's ``dispatch.solve_multi_market_scenario``
+routes the cyclic SCC to ``engine.joint.solve_joint_scc``). A ``joint_solver``
+node attached to any one market of the component adds the scenario's optional
+``joint_solver`` block (:func:`_compile_joint_solver`); absent ⇒ no key, so a
+graph without one stays byte-identical.
+
 Dependency law: this module imports only ``ets.blocks`` siblings,
 ``ets.config_io``, and stdlib.
 """
@@ -514,7 +525,70 @@ def _compile_linked_scenario(graph: Graph, market_nodes: list[Node]) -> dict[str
             )
 
     links = _compile_links(graph, market_nodes, market_ids_in_component)
-    return {"name": scenario_name, "markets": markets, "links": links}
+    scenario: dict[str, Any] = {"name": scenario_name, "markets": markets, "links": links}
+    joint_solver = _compile_joint_solver(graph, market_nodes)
+    if joint_solver is not None:
+        scenario["joint_solver"] = joint_solver
+    return scenario
+
+
+def _compile_joint_solver(graph: Graph, market_nodes: list[Node]) -> dict[str, Any] | None:
+    """Collect a linked component's ``joint_solver`` node into a scenario block.
+
+    D2-4 (``docs/joint-equilibrium-plan.md`` §4): a ``joint_solver`` node attaches
+    to ANY one market of a linked component through that market's ``joint_solver``
+    in-port (mirroring how a policy attaches to ``policies``); it configures the
+    WHOLE component's cyclic outer loop, so it is read once per component, not per
+    market. Its declared params (``config_key`` == the ``normalize_joint_solver``
+    key, every default ``None``) become the scenario's optional ``joint_solver``
+    block. No node ⇒ ``None`` ⇒ the caller emits NO ``joint_solver`` key, so an
+    acyclic / cycle-with-defaults graph without such a node normalizes
+    byte-identically to today (the D1 COMPAT RULE, mirroring
+    ``config_io.normalize_joint_solver``'s own "absent ⇒ None" inertness).
+
+    A cyclic component whose user dropped a BARE joint_solver node (no params
+    set) yields ``{}`` — a present-but-empty block that
+    ``normalize_joint_solver`` defaults exactly as the engine would; the KEY's
+    presence is the honest "the user configured the joint solver" signal.
+
+    Args:
+        graph: The drawn block graph.
+        market_nodes: This component's ``carbon_market`` nodes.
+
+    Returns:
+        The raw ``joint_solver`` settings dict (only the user-set keys), or
+        ``None`` when the component carries no ``joint_solver`` node.
+
+    Raises:
+        CompileError: More than one DISTINCT ``joint_solver`` node attaches to
+            the component's markets — a component's outer loop takes exactly one
+            (attach it to any single market in the cycle).
+    """
+    joint_nodes: dict[str, Node] = {}
+    for market_node in market_nodes:
+        for edge in graph.edges_into(market_node.id, "joint_solver"):
+            node = _require_node(
+                graph, edge.source, f"Market '{market_node.id}' joint_solver edge"
+            )
+            joint_nodes[node.id] = node
+    if not joint_nodes:
+        return None
+    if len(joint_nodes) > 1:
+        raise CompileError(
+            f"Linked scenario has {len(joint_nodes)} distinct joint_solver nodes "
+            f"{sorted(joint_nodes)} attached to its markets — a component's outer "
+            "loop takes exactly one joint_solver node (attach one to any single "
+            "market in the cycle)."
+        )
+    (joint_node,) = joint_nodes.values()
+    spec = _require_spec(joint_node)
+    settings: dict[str, Any] = {}
+    for param in spec.params:
+        raw = joint_node.params.get(param.name, param.default)
+        if raw is None:
+            continue
+        settings[param.config_key] = _coerce_json_shape(raw)
+    return settings
 
 
 def _merge_block_params(

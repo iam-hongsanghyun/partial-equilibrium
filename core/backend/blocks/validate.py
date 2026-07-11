@@ -213,14 +213,18 @@ _LINK_CHANNELS = frozenset({"mac_cost", "invest_break_even"})
 
 # Mirrors engine/joint.py:JOINT_DEFAULTS["relaxation"] as a bare literal (this
 # module may not import the engine — dependency law). w = 1.0 is UNDAMPED
-# Gauss-Seidel; the damped default (0.5) is safe. R37 reads a per-cycle
-# ``relaxation`` hint off the market_link nodes (the interim carrier until the
-# D2-4 joint_solver composer node lands) and warns only when it is exactly 1.0
-# on a cyclic SCC that also carries a banking / discrete-adoption market.
+# Gauss-Seidel; the damped default (0.5) is safe. R37 resolves the SCC's
+# ``relaxation`` from a ``joint_solver`` composer node attached to one of the
+# SCC's markets (D2-4, the real carrier), falling back to a per-cycle
+# ``relaxation`` hint on the intra-SCC ``market_link`` nodes (the D2-3 interim
+# carrier), then to the damped default; it warns only when the resolved value
+# is exactly 1.0 on a cyclic SCC that also carries a banking / discrete-adoption
+# market.
 _JOINT_RELAXATION_DEFAULT = 0.5
 _JOINT_RELAXATION_UNDAMPED = 1.0
 _BANKING_PF_BLOCK = "rubin_schennach_banking"
 _INVESTMENT_POLICY_BLOCK = "endogenous_investment"
+_JOINT_SOLVER_BLOCK = "joint_solver"
 
 
 def _market_link_nodes(graph: Graph) -> list[Node]:
@@ -463,6 +467,34 @@ def _market_has_discrete_adoption(graph: Graph, market_id: str) -> bool:
     )
 
 
+def _scc_joint_relaxation(graph: Graph, scc_set: set[str]) -> float | None:
+    """Relaxation declared by a ``joint_solver`` node attached to any SCC market.
+
+    D2-4: the ``joint_solver`` composer node is the authoritative carrier of a
+    cyclic SCC's outer-loop settings (it attaches to any one market of the
+    component via the ``joint_solver`` in-port). Returns the declared
+    ``relaxation``, or ``None`` when no node is attached or it leaves
+    ``relaxation`` unset (⇒ the caller falls back to the D2-3 intra-SCC
+    ``market_link`` hint, then the damped default).
+
+    Args:
+        graph: The drawn block graph.
+        scc_set: The market ids of one cyclic SCC.
+
+    Returns:
+        The joint_solver node's declared ``relaxation`` (float), or ``None``.
+    """
+    for market_id in scc_set:
+        for edge in graph.edges_into(market_id, "joint_solver"):
+            node = graph.node(edge.source)
+            if node is None or node.block != _JOINT_SOLVER_BLOCK:
+                continue
+            raw = node.params.get("relaxation")
+            if raw is not None:
+                return float(raw)
+    return None
+
+
 def _rule_r37_undamped_cyclic_hazard(
     graph: Graph, edges: list[tuple[str, str, Node]], issues: list[ValidationIssue]
 ) -> None:
@@ -476,9 +508,10 @@ def _rule_r37_undamped_cyclic_hazard(
     banking step demand under w = 1 is exactly the regime the damping default
     (0.5) exists to tame. A WARNING (never an error — the model still runs, and
     the non-convergence + cycle-detected diagnostics fire at solve time). The
-    per-cycle relaxation is read off the intra-SCC ``market_link`` node params
-    (the interim carrier until the D2-4 ``joint_solver`` composer node); absent ⇒
-    the damped default (0.5) ⇒ silent.
+    per-cycle relaxation is read off the D2-4 ``joint_solver`` composer node
+    attached to the SCC (:func:`_scc_joint_relaxation`, the authoritative
+    carrier), falling back to the D2-3 interim hint on the intra-SCC
+    ``market_link`` node params; absent both ⇒ the damped default (0.5) ⇒ silent.
 
     Args:
         graph: The drawn block graph.
@@ -492,14 +525,20 @@ def _rule_r37_undamped_cyclic_hazard(
         has_discrete = any(_market_has_discrete_adoption(graph, m) for m in scc)
         if not (has_banking or has_discrete):
             continue
-        # Resolve the SCC's relaxation off its intra-SCC link nodes (max declared,
-        # default damped): the SCC is undamped iff a cycle link sets w == 1.0.
-        relaxations = [
-            float(node.params.get("relaxation", _JOINT_RELAXATION_DEFAULT))
-            for source_id, target_id, node in edges
-            if source_id in scc_set and target_id in scc_set
-        ]
-        resolved = max(relaxations, default=_JOINT_RELAXATION_DEFAULT)
+        # Resolve the SCC's relaxation: the D2-4 joint_solver composer node is the
+        # authoritative carrier (attached to any SCC market); absent, fall back to
+        # the D2-3 interim hint on the intra-SCC link nodes (max declared, default
+        # damped). The SCC is undamped iff the resolved w == 1.0.
+        declared = _scc_joint_relaxation(graph, scc_set)
+        if declared is not None:
+            resolved = declared
+        else:
+            relaxations = [
+                float(node.params.get("relaxation", _JOINT_RELAXATION_DEFAULT))
+                for source_id, target_id, node in edges
+                if source_id in scc_set and target_id in scc_set
+            ]
+            resolved = max(relaxations, default=_JOINT_RELAXATION_DEFAULT)
         if resolved != _JOINT_RELAXATION_UNDAMPED:
             continue
         kind = "banking" if has_banking else "discrete-adoption"

@@ -93,6 +93,7 @@ def test_catalogue_covers_every_block_in_plan() -> None:
     expected_ids = {
         "carbon_market",
         "market_link",
+        "joint_solver",
         "competitive_clearing",
         "rubin_schennach_banking",
         "hotelling",

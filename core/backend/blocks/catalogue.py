@@ -39,6 +39,16 @@ _AUCTION_MODES = ("explicit", "derive_from_cap")
 # §2b: v1 ships exactly these two, no default) — duplicated here only as
 # strings, per this module's own dependency law (see module docstring).
 _LINK_CHANNELS = ("mac_cost", "invest_break_even")
+# Mirrors config_io/builder.py:_JOINT_SOLVER_ALLOWED_SWEEPS / _..._ALLOWED_SEEDS
+# (D2 joint-equilibrium schema, docs/joint-equilibrium-plan.md §4) — duplicated
+# here only as strings, per this module's dependency law. config_io is the
+# single source of truth for the runtime DEFAULTS; the joint_solver block below
+# declares NONE of them (every param defaults to None ⇒ "user did not set this"
+# ⇒ config_io.normalize_joint_solver fills its own default), so a bare dropped
+# node compiles to an empty joint_solver block that normalizes exactly as the
+# engine would — no joint-solver default is ever hardcoded here.
+_JOINT_SWEEP_SCHEMES = ("gauss_seidel",)
+_JOINT_INITIAL_GUESSES = ("one_way_seed", "cold")
 
 # ── generic per-price-formation scenario fields ─────────────────────────
 # These scenario-level keys are ALWAYS present in a normalised scenario dict
@@ -179,6 +189,16 @@ def _market_block() -> BlockSpec:
             # compiles exactly as today (component of size one).
             PortSpec("signal", "out", "market_signal"),
             PortSpec("links", "in", "market_link", cardinality="0..n"),
+            # D2 joint-equilibrium (docs/joint-equilibrium-plan.md §4): an
+            # optional ``joint_solver`` node attaches to ANY one market of a
+            # cyclic (joint fixed-point) component through this port — it
+            # configures the whole component's outer loop, not this market
+            # alone (compile.py:_compile_joint_solver reads it once per
+            # component). Absent for every single-market / acyclic graph, so a
+            # graph without a joint_solver node compiles byte-identically to
+            # today. Mirrors how a policy/baseline metadata block attaches to a
+            # market via a dedicated in-port.
+            PortSpec("joint_solver", "in", "joint_solver", cardinality="0..1"),
         ),
     )
 
@@ -227,6 +247,54 @@ def _market_link_block() -> BlockSpec:
             PortSpec("from", "in", "market_signal", cardinality="1"),
             PortSpec("link", "out", "market_link"),
         ),
+    )
+
+
+def _joint_solver_block() -> BlockSpec:
+    return BlockSpec(
+        id="joint_solver",
+        label="Joint Solver",
+        category="links",
+        doc=(
+            "Outer-loop settings for a cyclic (joint fixed-point) market SCC "
+            "(engine/joint.py:solve_joint_scc); compiles into the linked "
+            "scenario's optional 'joint_solver' block "
+            "(config_io/builder.py:normalize_joint_solver via "
+            "core/backend/blocks/compile.py:_compile_joint_solver)."
+        ),
+        feature="market_links",
+        params=(
+            # Every config_key matches a normalize_joint_solver normalized key
+            # EXACTLY (plan §4). Every default is None — "the user did not set
+            # this" — NOT the engine's runtime default: config_io owns those
+            # (see _JOINT_SWEEP_SCHEMES comment above). compile.py emits only
+            # the keys the user actually set; the block appears at all only when
+            # the user drops a joint_solver node, so a graph WITHOUT one stays
+            # byte-identical to today (the D1 COMPAT RULE).
+            ParamSpec(
+                "relaxation", "relaxation", "edge", "float", None, bounds=(0.0, 1.0),
+                label="w — relaxation weight in (0, 1]; < 1 damps (config_io default 0.5)",
+            ),
+            ParamSpec(
+                "tolerance", "tolerance", "edge", "float", None,
+                label="Per-market convergence tolerance (config_io accepts 'atol' "
+                "as an alias; default 1e-4)",
+            ),
+            ParamSpec(
+                "max_iterations", "max_iterations", "edge", "int", None,
+                label="Outer-sweep cap (config_io default 50)",
+            ),
+            ParamSpec(
+                "sweep", "sweep", "edge", "enum", None, enum=_JOINT_SWEEP_SCHEMES,
+                label="Sweep scheme (Gauss-Seidel only in v1; Jacobi is D3)",
+            ),
+            ParamSpec(
+                "initial_guess", "initial_guess", "edge", "enum", None,
+                enum=_JOINT_INITIAL_GUESSES,
+                label="Warm-start seed (config_io default one_way_seed)",
+            ),
+        ),
+        ports=(PortSpec("joint_solver", "out", "joint_solver"),),
     )
 
 
@@ -767,6 +835,7 @@ def _build_catalogue() -> BlockRegistry:
     for block in (
         _market_block(),
         _market_link_block(),
+        _joint_solver_block(),
         *_price_formation_blocks(),
         *_policy_blocks(),
         *_feedback_blocks(),

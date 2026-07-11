@@ -39,6 +39,13 @@ only") is retired now that both directions are wired; the two paths share
 :func:`_decompile_market_body`, the one place that knows how to walk a
 market body regardless of which shape it arrived in.
 
+D2-4 (``docs/joint-equilibrium-plan.md`` §4): the ``markets``/``links`` edges
+may form a CYCLE, and a cyclic scenario may carry an optional ``joint_solver``
+block — :func:`_decompile_joint_solver` restores it as one ``joint_solver``
+node wired into the first market (the component-level analogue of the wrapping
+``scenario_name``). Absent block ⇒ no node, so an acyclic scenario round-trips
+unchanged.
+
 Dependency law: this module imports only ``ets.blocks`` siblings,
 ``ets.config_io``, and stdlib.
 """
@@ -185,6 +192,54 @@ def _decompile_linked_scenario(
         nodes.append(Node(link_node_id, "market_link", params))
         edges.append(Edge(node_id_by_market_id[link["from_market"]], "signal", link_node_id, "from"))
         edges.append(Edge(link_node_id, "link", node_id_by_market_id[link["to_market"]], "links"))
+
+    _decompile_joint_solver(
+        scenario, scenario_index, f"market{scenario_index}_0", nodes, edges
+    )
+
+
+def _decompile_joint_solver(
+    scenario: dict[str, Any],
+    scenario_index: int,
+    first_market_node_id: str,
+    nodes: list[Node],
+    edges: list[Edge],
+) -> None:
+    """Synthesize the ``joint_solver`` node for a cyclic (joint) scenario (D2-4).
+
+    Inverse of ``compile.py``'s :func:`~ets.blocks.compile._compile_joint_solver`:
+    a ``markets``-shaped scenario carrying a ``joint_solver`` block (only cyclic
+    components ever declare one) becomes one ``joint_solver`` node wired into the
+    FIRST market's ``joint_solver`` in-port — the component-level analogue of how
+    the wrapping ``scenario_name`` is restated on the first market. Absent block
+    ⇒ no node (the "reads like what a human drew" discipline; an acyclic /
+    single-market scenario never carries the key, so it never gains the node).
+
+    Every key ``normalize_joint_solver`` filled is restated verbatim on the node
+    (the block's ParamSpec defaults are ``None``, so every present key deviates
+    and round-trips): compile re-emits them and re-normalizes to the identical
+    block.
+
+    Args:
+        scenario: A normalized ``markets``-shaped scenario dict.
+        scenario_index: This scenario's index in the config's top-level list.
+        first_market_node_id: The order-first market's ``carbon_market`` node id
+            (``market{scenario_index}_0``), the node the joint_solver attaches to.
+        nodes: Accumulating node list (mutated in place).
+        edges: Accumulating edge list (mutated in place).
+    """
+    settings = scenario.get("joint_solver")
+    if not settings:
+        return
+    spec = BLOCK_CATALOGUE.get("joint_solver")
+    params: dict[str, Any] = {
+        param.name: settings[param.config_key]
+        for param in spec.params
+        if param.config_key in settings
+    }
+    node_id = f"market{scenario_index}_joint"
+    nodes.append(Node(node_id, "joint_solver", params))
+    edges.append(Edge(node_id, "joint_solver", first_market_node_id, "joint_solver"))
 
 
 def _decompile_market_body(
