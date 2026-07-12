@@ -782,20 +782,18 @@ def _build_producer_ref_views(producer_ref: Mapping[str, Any], year_label: str) 
         The year's ``MultiCommodityProducer`` emitter views (``[]`` when the year
         has no referenced producers).
     """
-    from ..core.participant.producer import MultiCommodityProducer, ProducerParams
-    from ..core.participant.producer import CleanTechOption
+    from ..core.participant.producer import (
+        MultiCommodityProducer,
+        ProducerParams,
+        clean_tech_option_from_spec,
+    )
 
     producers_by_year = producer_ref.get("producers_by_year") or {}
     specs = list(producers_by_year.get(str(year_label)) or [])
     views: list = []
     for spec in sorted(specs, key=lambda s: str(s["name"])):
         options = tuple(
-            CleanTechOption(
-                name=str(o["name"]),
-                sigma_prime=float(o["sigma_prime"]),
-                trigger=float(o["trigger"]),
-            )
-            for o in spec.get("technology_options") or []
+            clean_tech_option_from_spec(o) for o in spec.get("technology_options") or []
         )
         params = ProducerParams(
             gamma=float(spec["gamma"]),
@@ -870,6 +868,13 @@ def _build_product_market_from_year(
     setattr(market, "product_demand", dict(scenario.get("product_demand") or {}))  # noqa: B010
     setattr(market, "product_import_supply", dict(scenario.get("import_supply") or {}))  # noqa: B010
     setattr(market, "product_producers", list(year_body.get("producers") or []))  # noqa: B010
+    # OBA design label (V-D3-5 ruling #4): the multi-commodity producer's OBA is
+    # the marginal ``output_based`` design (cap-relaxing Σe = Cap + φ·Σq); the
+    # single-market oba_output_allocation.json is the ``fixed_cap`` design. Carried
+    # for the reported diagnostic; default output_based.
+    setattr(  # noqa: B010
+        market, "product_oba_mode", str(scenario.get("oba_mode") or "output_based")
+    )
     # Dispatch/run_simulation getattr fields — product uses neither transmission
     # nor investment feedback; set them explicitly to the inert/off values.
     setattr(market, "forward_transmission_lambda", None)  # noqa: B010

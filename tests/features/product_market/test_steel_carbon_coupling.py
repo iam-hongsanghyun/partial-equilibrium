@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+import pytest
 
 from pe.core.participant.producer import ProducerParams
 from pe.engine import run_simulation_from_config
@@ -442,6 +443,155 @@ def test_cbam_and_oba_compose() -> None:
     # Both anti-leakage levers active ⇒ a well-defined leakage read on the steel row.
     assert "Leakage Rate" in summary.columns
     assert np.isfinite(float(_steel_row(summary)["Leakage Rate"].iloc[0]))
+
+
+# ── V-D3-5 ruling #4: OBA cap-RELAXING vs CBAM cap-PRESERVING (Σe surfaced) ──────
+
+
+def test_cbam_is_cap_preserving_gross_emissions_equal_cap() -> None:
+    """CBAM (ruling #4): no free allowances ⇒ gross Σe = Cap = 40 (cap-preserving)."""
+    summary, _ = run_simulation_from_config(
+        _joint_scenario(cbam={"enabled": True, "coverage": 0.5})
+    )
+    row = _steel_row(summary)
+    np.testing.assert_allclose(float(row["Gross Emissions"].iloc[0]), _CAP, rtol=0, atol=_PIN)
+    np.testing.assert_allclose(float(row["OBA Free Allocation"].iloc[0]), 0.0, rtol=0, atol=_PIN)
+
+
+def test_oba_is_cap_relaxing_gross_emissions_exceed_cap() -> None:
+    """OBA (ruling #4): Σe = Cap + φ·Σq = 40 + 13.33 = 53.33; the cap FLOATS up +33%."""
+    summary, participants = run_simulation_from_config(_joint_scenario(phi_oba=1.0))
+    row = _steel_row(summary)
+    # φ·Σq free allowances issued ON TOP of the cap.
+    np.testing.assert_allclose(
+        float(row["OBA Free Allocation"].iloc[0]), _OBA_Q_AGG, rtol=0, atol=_PIN
+    )
+    # Gross residual emissions = Cap + φ·Σq (cap-relaxing).
+    np.testing.assert_allclose(
+        float(row["Gross Emissions"].iloc[0]), _CAP + _OBA_Q_AGG, rtol=0, atol=_PIN
+    )
+    np.testing.assert_allclose(
+        float(row["Gross Emissions"].iloc[0]), 53.3333333333, rtol=0, atol=_PIN
+    )
+    assert str(row["OBA Mode"].iloc[0]) == "output_based"
+    # The contrast: OBA floats emissions ABOVE the cap, CBAM does not.
+    assert float(row["Gross Emissions"].iloc[0]) > _CAP
+
+
+# ── V-D3-5 ruling #1: the θ/M trigger surface reports P* = M·θ ───────────────────
+
+
+def test_clean_tech_trigger_price_reported_as_p_star() -> None:
+    """Ruling #1: break_even ⇒ P* = θ = 9 reported as 'Clean Tech Trigger Price'."""
+    summary, _ = run_simulation_from_config(_joint_scenario(tech_options=_H2_DRI))
+    np.testing.assert_allclose(
+        float(_steel_row(summary)["Clean Tech Trigger Price"].iloc[0]), 9.0, rtol=0, atol=_PIN
+    )
+
+
+def test_option_value_trigger_lifts_p_star_above_theta_and_blocks_adoption() -> None:
+    """Ruling #1: option_value M>1 lifts P* above θ; a high wedge blocks adoption.
+
+    θ=9 with an option-value multiple pushes P* = M·9 well above the base
+    P_c*=10, so the switch does NOT fire and the fixed point is the no-adopt
+    anchor — the irreversibility-under-uncertainty wedge, kept as real economics
+    (not folded into a single trigger number).
+    """
+    option_value = [
+        {
+            "name": "H2-DRI",
+            "sigma_prime": 3.0,
+            "theta": 9.0,
+            "trigger_mode": "option_value",
+            "sigma": 0.48,
+            "credibility": 0.0,
+            "discount_rate": 0.055,
+            "payout_yield": 0.03,
+        }
+    ]
+    summary, participants = run_simulation_from_config(_joint_scenario(tech_options=option_value))
+    # P* = M·θ > θ = 9, and (here) above P_c* ⇒ no adoption ⇒ the D3-4 anchor.
+    assert float(_steel_row(summary)["Clean Tech Trigger Price"].iloc[0]) > 9.0
+    np.testing.assert_allclose(_price(summary, "steel"), _P_STEEL_STAR, rtol=0, atol=_PIN)
+    np.testing.assert_allclose(_price(summary, "carbon"), _P_CARBON_STAR, rtol=0, atol=_PIN)
+
+
+# ── V-D3-5 ruling #2: leakage counterfactual at the UN-ADOPTED σ ─────────────────
+
+_ADOPT_HEADLINE_LEAKAGE = 0.1618595826
+_ADOPT_CONDITIONAL_LEAKAGE = 0.3930893232
+
+
+def test_investment_headline_leakage_uses_unadopted_counterfactual() -> None:
+    """Ruling #2: headline leakage holds the P_c=0 counterfactual at the UN-ADOPTED σ.
+
+    Adoption preserves domestic output, so scored against the un-adopted
+    baseline the whole-policy leakage is LOWER than the post-adoption-σ′
+    conditional leakage. The two coincide only when nothing adopts.
+    """
+    summary, _ = run_simulation_from_config(_joint_scenario(tech_options=_H2_DRI))
+    row = _steel_row(summary)
+    headline = float(row["Leakage Rate"].iloc[0])
+    conditional = float(row["Conditional Leakage"].iloc[0])
+    np.testing.assert_allclose(headline, _ADOPT_HEADLINE_LEAKAGE, rtol=0, atol=_PIN)
+    np.testing.assert_allclose(conditional, _ADOPT_CONDITIONAL_LEAKAGE, rtol=0, atol=_PIN)
+    # The induced tech-switch lowers whole-policy leakage below the conditional.
+    assert headline < conditional
+
+
+def test_no_adoption_headline_and_conditional_leakage_coincide() -> None:
+    """Ruling #2: with no adoption the two counterfactuals are identical (0.353)."""
+    summary, _ = run_simulation_from_config(_joint_scenario())
+    row = _steel_row(summary)
+    np.testing.assert_allclose(
+        float(row["Leakage Rate"].iloc[0]),
+        float(row["Conditional Leakage"].iloc[0]),
+        rtol=0,
+        atol=_PIN,
+    )
+    np.testing.assert_allclose(float(row["Leakage Rate"].iloc[0]), _LEAKAGE, rtol=0, atol=_PIN)
+
+
+# ── V-D3-5 ruling #3: the convergence-time leg-agreement assertion ──────────────
+
+
+def test_leg_agreement_assertion_passes_when_faces_agree() -> None:
+    """Consistent converged floors (same firm, same tech on both faces) ⇒ no raise."""
+    from pe.engine.dispatch import _assert_leg_adoption_agreement
+
+    member_firms = {"steel": {"SteelCo A"}, "carbon": {"SteelCo A"}}
+    member_adopted = {
+        "steel": {"SteelCo A": frozenset({"H2-DRI"})},
+        "carbon": {"SteelCo A": frozenset({"H2-DRI"})},
+    }
+    # Does not raise.
+    _assert_leg_adoption_agreement(member_firms, member_adopted, "ok")
+
+
+def test_leg_agreement_assertion_raises_on_inconsistent_converged_state() -> None:
+    """Ruling #3: same firm on σ (carbon face) but σ′ (steel face) MUST raise.
+
+    A deliberately-inconsistent converged construction: SteelCo A adopted H2-DRI
+    on the steel output face but NOT on the carbon emitter face — the exact
+    leg-inconsistent 'equilibrium' the assertion must reject loudly.
+    """
+    from pe.engine.dispatch import _assert_leg_adoption_agreement
+
+    member_firms = {"steel": {"SteelCo A"}, "carbon": {"SteelCo A"}}
+    member_adopted = {
+        "steel": {"SteelCo A": frozenset({"H2-DRI"})},
+        "carbon": {"SteelCo A": frozenset()},  # baseline σ on the carbon face
+    }
+    with pytest.raises(ValueError, match="INCONSISTENT clean-tech adoption"):
+        _assert_leg_adoption_agreement(member_firms, member_adopted, "steel-carbon")
+
+
+def test_real_joint_investment_run_passes_the_leg_agreement_assertion() -> None:
+    """The genuine adopting run converges WITHOUT tripping the leg-agreement guard."""
+    summary, _ = run_simulation_from_config(_joint_scenario(tech_options=_H2_DRI))
+    # If the two faces disagreed at convergence the solve would have RAISED.
+    assert float(summary[summary["Market"] == "carbon"]["Joint Converged"].iloc[0]) == 1.0
+    assert "H2-DRI" in str(_steel_row(summary)["Investment Adoptions"].iloc[0])
 
 
 class _capture_warnings:

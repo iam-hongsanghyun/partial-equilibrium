@@ -1,0 +1,185 @@
+{
+  "description": {
+    "title": "D3-6 flagship: the steel<->carbon joint cycle + the anti-leakage levers (CBAM cap-preserving vs OBA cap-relaxing)",
+    "why_a_cycle_is_born": "Two identical steel producers (gamma=5, delta=2, sigma=5, beta=10, a_max=5) live in TWO markets at once: a steel product market (Sigma q + M = D, linear demand A_d=40 b_d=0.3, carbon-free elastic imports m=0.2 sigma_foreign=5) and a carbon market (Sigma e = Cap = 40). Because beta is FINITE, each firm abates a*=P_c/beta AND sheds output q=Cap/(sigma - P_c/beta), so at a FIXED cap the output q VARIES with the carbon price -- that endogenous q is exactly what closes the steel<->carbon loop into a genuine 2-way SCC (loop gain g = s_c*s_s = 0.627 in (0,1)). The unchanged damped Gauss-Seidel joint engine solves it.",
+    "base_anchor": "Hand-verified finite-beta fixed point: P_steel*=60, P_carbon*=10, per-firm q*=5 (agg 10), a*=1, residual Sigma e* = (sigma-a*)q* = 40 = Cap, imports M*=12, demand D=22, leakage L=0.353 (vs the no-policy P_c=0 counterfactual P_s0=30, e0=125, M0=6). Joint Converged=1.",
+    "integrity_contrast": "CBAM is cap-PRESERVING, OBA is cap-RELAXING. Under CBAM (border charge c*P_c*sigma_foreign folded INTO steel clearing, coverage c=0.5) leakage falls hard 0.353 -> 0.111 while gross emissions stay Sigma e = Cap = 40 (no free allowances issued). Under output-based allocation (phi=1 tCO2/t-steel) leakage barely moves 0.353 -> 0.326 AND OBA issues phi*Sigma q free allowances ON TOP of the cap, so Sigma e = Cap + phi*Sigma q = 40 + 13.33 = 53.33 -- gross emissions float up +33%. CBAM cuts leakage more while holding the cap; OBA buys weaker leakage protection by relaxing the cap. (The ranking is calibration-dependent; the cap-preserving-vs-relaxing structural fact is general -- V-D3-5 ruling #4.)",
+    "investment_margin": "A cleaner H2-DRI option (sigma'=3) with trigger_mode='break_even' (M=1 so the reported trigger P* = M*theta = theta = 9). At the base P_c*=10 >= 9 the switch fires: sigma drops 5 -> 3, the cap loosens, P_c falls below the no-adopt anchor (ex-post regret permitted) and domestic output RECOVERS. Headline leakage uses the UN-ADOPTED sigma counterfactual (ruling #2), so it scores the WHOLE-policy effect including the induced tech-switch.",
+    "rulings_exercised": "V-D3-5 #1 (theta/M kept separate; P* = M*theta reported as 'Clean Tech Trigger Price'), #2 (leakage counterfactual at un-adopted sigma; 'Conditional Leakage' the post-adoption-sigma' secondary), #3 (convergence-time leg-agreement assertion on the two producer faces), #4 (Sigma e = Cap + phi*Sigma q surfaced via 'Gross Emissions' + 'OBA Free Allocation')."
+  },
+  "scenarios": [
+    {
+      "name": "steel-carbon base (finite-beta cycle)",
+      "markets": [
+        {
+          "market_id": "carbon",
+          "price_unit": "USD/tCO2",
+          "model_approach": "competitive",
+          "producer_ref": {"market": "steel"},
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 40.0,
+              "auction_offered": 40.0,
+              "auction_mode": "explicit",
+              "price_upper_bound": 200.0,
+              "participants": []
+            }
+          ]
+        },
+        {
+          "market_id": "steel",
+          "price_unit": "USD/t-steel",
+          "model_approach": "product",
+          "carbon_price": 0.0,
+          "product_demand": {"form": "linear", "intercept": 40.0, "slope": 0.3},
+          "import_supply": {"world_price": 0.0, "slope": 0.2, "sigma_foreign": 5.0},
+          "years": [
+            {
+              "year": "2030",
+              "participants": [
+                {"name": "SteelCo A", "kind": "producer", "output_cost": {"gamma": 5.0, "delta": 2.0}, "intensity": 5.0, "abatement": {"beta": 10.0, "a_max": 5.0}},
+                {"name": "SteelCo B", "kind": "producer", "output_cost": {"gamma": 5.0, "delta": 2.0}, "intensity": 5.0, "abatement": {"beta": 10.0, "a_max": 5.0}}
+              ]
+            }
+          ]
+        }
+      ],
+      "links": [
+        {"from_market": "carbon", "to_market": "steel", "channel": "carbon_input_price", "phi": 1.0, "phi_unit": "1/1", "target_participants": ["*"]},
+        {"from_market": "steel", "to_market": "carbon", "channel": "output_ref_price", "phi": 1.0, "phi_unit": "1/1", "target_participants": ["*"]}
+      ],
+      "joint_solver": {"relaxation": 0.5, "tolerance": 1e-12, "max_iterations": 400}
+    },
+    {
+      "name": "steel-carbon CBAM c=0.5 (cap-preserving)",
+      "markets": [
+        {
+          "market_id": "carbon",
+          "price_unit": "USD/tCO2",
+          "model_approach": "competitive",
+          "producer_ref": {"market": "steel"},
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 40.0,
+              "auction_offered": 40.0,
+              "auction_mode": "explicit",
+              "price_upper_bound": 200.0,
+              "participants": []
+            }
+          ]
+        },
+        {
+          "market_id": "steel",
+          "price_unit": "USD/t-steel",
+          "model_approach": "product",
+          "carbon_price": 0.0,
+          "product_demand": {"form": "linear", "intercept": 40.0, "slope": 0.3},
+          "import_supply": {"world_price": 0.0, "slope": 0.2, "sigma_foreign": 5.0, "cbam": {"enabled": true, "coverage": 0.5}},
+          "years": [
+            {
+              "year": "2030",
+              "participants": [
+                {"name": "SteelCo A", "kind": "producer", "output_cost": {"gamma": 5.0, "delta": 2.0}, "intensity": 5.0, "abatement": {"beta": 10.0, "a_max": 5.0}},
+                {"name": "SteelCo B", "kind": "producer", "output_cost": {"gamma": 5.0, "delta": 2.0}, "intensity": 5.0, "abatement": {"beta": 10.0, "a_max": 5.0}}
+              ]
+            }
+          ]
+        }
+      ],
+      "links": [
+        {"from_market": "carbon", "to_market": "steel", "channel": "carbon_input_price", "phi": 1.0, "phi_unit": "1/1", "target_participants": ["*"]},
+        {"from_market": "steel", "to_market": "carbon", "channel": "output_ref_price", "phi": 1.0, "phi_unit": "1/1", "target_participants": ["*"]}
+      ],
+      "joint_solver": {"relaxation": 0.5, "tolerance": 1e-12, "max_iterations": 400}
+    },
+    {
+      "name": "steel-carbon OBA output_based (cap-relaxing)",
+      "markets": [
+        {
+          "market_id": "carbon",
+          "price_unit": "USD/tCO2",
+          "model_approach": "competitive",
+          "producer_ref": {"market": "steel"},
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 40.0,
+              "auction_offered": 40.0,
+              "auction_mode": "explicit",
+              "price_upper_bound": 200.0,
+              "participants": []
+            }
+          ]
+        },
+        {
+          "market_id": "steel",
+          "price_unit": "USD/t-steel",
+          "model_approach": "product",
+          "carbon_price": 0.0,
+          "oba_mode": "output_based",
+          "product_demand": {"form": "linear", "intercept": 40.0, "slope": 0.3},
+          "import_supply": {"world_price": 0.0, "slope": 0.2, "sigma_foreign": 5.0},
+          "years": [
+            {
+              "year": "2030",
+              "participants": [
+                {"name": "SteelCo A", "kind": "producer", "output_cost": {"gamma": 5.0, "delta": 2.0}, "intensity": 5.0, "abatement": {"beta": 10.0, "a_max": 5.0}, "oba_benchmark": 1.0},
+                {"name": "SteelCo B", "kind": "producer", "output_cost": {"gamma": 5.0, "delta": 2.0}, "intensity": 5.0, "abatement": {"beta": 10.0, "a_max": 5.0}, "oba_benchmark": 1.0}
+              ]
+            }
+          ]
+        }
+      ],
+      "links": [
+        {"from_market": "carbon", "to_market": "steel", "channel": "carbon_input_price", "phi": 1.0, "phi_unit": "1/1", "target_participants": ["*"]},
+        {"from_market": "steel", "to_market": "carbon", "channel": "output_ref_price", "phi": 1.0, "phi_unit": "1/1", "target_participants": ["*"]}
+      ],
+      "joint_solver": {"relaxation": 0.5, "tolerance": 1e-12, "max_iterations": 400}
+    },
+    {
+      "name": "steel-carbon investment break_even (H2-DRI adopts)",
+      "markets": [
+        {
+          "market_id": "carbon",
+          "price_unit": "USD/tCO2",
+          "model_approach": "competitive",
+          "producer_ref": {"market": "steel"},
+          "years": [
+            {
+              "year": "2030",
+              "total_cap": 40.0,
+              "auction_offered": 40.0,
+              "auction_mode": "explicit",
+              "price_upper_bound": 200.0,
+              "participants": []
+            }
+          ]
+        },
+        {
+          "market_id": "steel",
+          "price_unit": "USD/t-steel",
+          "model_approach": "product",
+          "carbon_price": 0.0,
+          "product_demand": {"form": "linear", "intercept": 40.0, "slope": 0.3},
+          "import_supply": {"world_price": 0.0, "slope": 0.2, "sigma_foreign": 5.0},
+          "years": [
+            {
+              "year": "2030",
+              "participants": [
+                {"name": "SteelCo A", "kind": "producer", "output_cost": {"gamma": 5.0, "delta": 2.0}, "intensity": 5.0, "abatement": {"beta": 10.0, "a_max": 5.0}, "technology_options": [{"name": "H2-DRI", "sigma_prime": 3.0, "theta": 9.0, "trigger_mode": "break_even"}]},
+                {"name": "SteelCo B", "kind": "producer", "output_cost": {"gamma": 5.0, "delta": 2.0}, "intensity": 5.0, "abatement": {"beta": 10.0, "a_max": 5.0}, "technology_options": [{"name": "H2-DRI", "sigma_prime": 3.0, "theta": 9.0, "trigger_mode": "break_even"}]}
+              ]
+            }
+          ]
+        }
+      ],
+      "links": [
+        {"from_market": "carbon", "to_market": "steel", "channel": "carbon_input_price", "phi": 1.0, "phi_unit": "1/1", "target_participants": ["*"]},
+        {"from_market": "steel", "to_market": "carbon", "channel": "output_ref_price", "phi": 1.0, "phi_unit": "1/1", "target_participants": ["*"]}
+      ],
+      "joint_solver": {"relaxation": 0.5, "tolerance": 1e-12, "max_iterations": 400}
+    }
+  ]
+}

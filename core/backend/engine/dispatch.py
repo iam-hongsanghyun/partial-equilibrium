@@ -905,8 +905,8 @@ def _propose_and_stamp_producer_adoptions(path_details: list[dict]) -> None:
     untouched (no ``investment_adoptions`` key ⇒ byte-identical no-invest path).
     """
     from ..core.participant.producer import (
-        CleanTechOption,
         MultiCommodityProducer,
+        clean_tech_option_from_spec,
         propose_clean_tech_adoptions,
     )
     from ..core.protocols import AdoptionEvent, serialize_adoption_state
@@ -922,14 +922,7 @@ def _propose_and_stamp_producer_adoptions(path_details: list[dict]) -> None:
                     out.append(
                         (
                             str(spec["name"]),
-                            tuple(
-                                CleanTechOption(
-                                    name=str(o["name"]),
-                                    sigma_prime=float(o["sigma_prime"]),
-                                    trigger=float(o["trigger"]),
-                                )
-                                for o in opts
-                            ),
+                            tuple(clean_tech_option_from_spec(o) for o in opts),
                         )
                     )
             return out
@@ -973,6 +966,89 @@ def _propose_and_stamp_producer_adoptions(path_details: list[dict]) -> None:
         )
         item["investment_feedback_iterations"] = 1.0
         item["investment_converged"] = 1.0
+
+
+def _firms_with_options(path_details: list[dict]) -> set[str]:
+    """Names of producers carrying clean-tech options on a solved leg's markets.
+
+    Walks a member's per-year detail dicts and collects every producer face that
+    carries ``technology_options`` — the steel leg's ``product_producers`` specs
+    and the carbon leg's :class:`MultiCommodityProducer` emitter views. Used by
+    the leg-agreement assertion (ruling #3) to know which firms each leg is a
+    face of, so a firm adopted on one face but not the other is caught.
+    """
+    from ..core.participant.producer import MultiCommodityProducer
+
+    firms: set[str] = set()
+    for item in path_details:
+        market = item["market"]
+        for spec in getattr(market, "product_producers", None) or []:
+            if spec.get("technology_options"):
+                firms.add(str(spec["name"]))
+        for participant in getattr(market, "participants", []):
+            if (
+                isinstance(participant, MultiCommodityProducer)
+                and participant.params.technology_options
+            ):
+                firms.add(participant.name)
+    return firms
+
+
+def _adopted_by_firm(state: AdoptionState) -> dict[str, frozenset[str]]:
+    """Group an adoption state into ``{producer: frozenset(adopted technology)}``."""
+    from collections import defaultdict as _dd
+
+    acc: dict[str, set[str]] = _dd(set)
+    for event in state:
+        acc[event.participant_name].add(event.technology_name)
+    return {firm: frozenset(techs) for firm, techs in acc.items()}
+
+
+def _assert_leg_adoption_agreement(
+    member_firms: Mapping[str, set[str]],
+    member_adopted: Mapping[str, Mapping[str, frozenset[str]]],
+    scenario_name: str,
+) -> None:
+    r"""Assert the two producer faces AGREE on adoption in the converged equilibrium.
+
+    The REQUIRED convergence-time leg-agreement check (V-D3-5 ruling #3, D2-5
+    CALL-2 ex-post consistency): a producer registered in BOTH the steel product
+    market (output face) and the carbon market (emitter face) must carry the SAME
+    adopted clean-tech set on both faces in the CONVERGED joint vector. A
+    leg-inconsistent "converged" state — the same firm on baseline σ on one face
+    and post-adoption σ′ on the other — is NEVER a valid equilibrium and RAISES
+    loudly (never silently reported). Transient per-sweep disagreement is
+    permitted; this runs only against the converged floor.
+
+    Args:
+        member_firms: ``{member_id: {firm names with options}}`` — which firms
+            each SCC member is a face of (from :func:`_firms_with_options`).
+        member_adopted: ``{member_id: {firm: frozenset(adopted tech)}}`` — the
+            converged adoption floor per member (from :func:`_adopted_by_firm`).
+        scenario_name: The scenario grouping name (error attribution).
+
+    Raises:
+        ValueError: A firm's adopted-tech set differs across the members that are
+            faces of it (a leg-inconsistent converged equilibrium).
+    """
+    # firm -> {member_id: adopted set}, across ONLY the members that are a face
+    # of the firm (so "adopted on steel, absent on carbon" is a genuine mismatch,
+    # not merely a firm that lives in one market).
+    by_firm: dict[str, dict[str, frozenset[str]]] = defaultdict(dict)
+    for member_id, firms in member_firms.items():
+        adopted = member_adopted.get(member_id, {})
+        for firm in firms:
+            by_firm[firm][member_id] = adopted.get(firm, frozenset())
+    for firm, per_member in by_firm.items():
+        if len({frozenset(s) for s in per_member.values()}) > 1:
+            detail = {member: sorted(techs) for member, techs in sorted(per_member.items())}
+            raise ValueError(
+                f"Scenario {scenario_name!r}: producer {firm!r} has INCONSISTENT clean-tech "
+                f"adoption across its market legs in the CONVERGED joint equilibrium {detail} "
+                "— the two producer faces (steel output vs carbon emitter) must AGREE on the "
+                "adopted technology at the joint fixed point (V-D3-5 ruling #3; D2-5 CALL-2 "
+                "ex-post consistency). A leg-inconsistent state is never a valid equilibrium."
+            )
 
 
 def _enforce_floor_monotone(
@@ -1268,6 +1344,17 @@ def _solve_cyclic_scc(
         # curve (same ``path`` the frames above were collected from).
         leg_paths[member] = path
 
+    # Leg-agreement assertion (V-D3-5 ruling #3): against the CONVERGED vector,
+    # the two producer faces of any shared firm must agree on their adopted
+    # clean tech. A leg-inconsistent state RAISES (never reported as equilibrium).
+    # Guarded — inert unless some member carries clean-tech options.
+    member_firms = {member: _firms_with_options(leg_paths[member]) for member in members}
+    if any(member_firms.values()):
+        member_adopted = {
+            member: _adopted_by_firm(adoption_floor.get(member, ())) for member in members
+        }
+        _assert_leg_adoption_agreement(member_firms, member_adopted, scenario_name)
+
 
 def _solve_cyclic_multi_market(
     scenario: Mapping[str, object],
@@ -1404,6 +1491,24 @@ def _stamp_multi_market_columns(
         equilibrium = item.get("equilibrium") or {}
         if "leakage_rate" in equilibrium:
             summary_row["Leakage Rate"] = float(equilibrium["leakage_rate"])
+        # Secondary "conditional" leakage — the P_c=0 counterfactual held at the
+        # POST-adoption σ′ (ruling #2). Coincides with the headline when nothing
+        # adopts; differs only under an induced tech-switch.
+        if "conditional_leakage_rate" in equilibrium:
+            summary_row["Conditional Leakage"] = float(equilibrium["conditional_leakage_rate"])
+        # OBA cap-relaxation (ruling #4): φ·Σq issued on top of the cap, so
+        # residual Σe = Cap + φ·Σq. Surfaced so the cap-RELAXING nature of OBA
+        # (vs cap-PRESERVING CBAM) is never hidden.
+        if "oba_free_allocation" in equilibrium:
+            summary_row["OBA Free Allocation"] = float(equilibrium["oba_free_allocation"])
+        if "oba_mode" in equilibrium:
+            summary_row["OBA Mode"] = str(equilibrium["oba_mode"])
+        if "gross_emissions" in equilibrium:
+            summary_row["Gross Emissions"] = float(equilibrium["gross_emissions"])
+        # Clean-tech adoption trigger P* = M·θ (ruling #1) — the reported price
+        # that fires the switch (θ/M kept separate; P* is the derived display).
+        if "clean_tech_trigger_price" in equilibrium:
+            summary_row["Clean Tech Trigger Price"] = float(equilibrium["clean_tech_trigger_price"])
         year = str(item["market"].year)
         priced_pairs: set[tuple[str, str]] = set()
         for link in inbound_links:

@@ -39,6 +39,7 @@ tolerance Brent solve, so identical inputs return identical output.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -50,10 +51,10 @@ from ...core.market.product_clearing import (
     solve_product_equilibrium,
 )
 from ...core.participant.producer import (
-    CleanTechOption,
     MultiCommodityProducer,
     ProducerOutcome,
     ProducerParams,
+    clean_tech_option_from_spec,
     optimize_producer,
 )
 
@@ -206,14 +207,7 @@ def _producer_params(spec: dict[str, Any]) -> ProducerParams:
     ``product_producers`` before the leg solves); both empty by default (the
     byte-identical no-invest path).
     """
-    options = tuple(
-        CleanTechOption(
-            name=str(o["name"]),
-            sigma_prime=float(o["sigma_prime"]),
-            trigger=float(o["trigger"]),
-        )
-        for o in spec.get("technology_options") or []
-    )
+    options = tuple(clean_tech_option_from_spec(o) for o in spec.get("technology_options") or [])
     adopted = frozenset(str(n) for n in spec.get("_adopted_tech") or [])
     return ProducerParams(
         gamma=float(spec["gamma"]),
@@ -280,39 +274,55 @@ def _leakage_diagnostic(
     imports: ImportSupply,
     price_steel: float,
     price_carbon: float,
-) -> float:
-    r"""Carbon-leakage rate vs the no-policy (P_carbon = 0) counterfactual (§4f).
+) -> tuple[float, float]:
+    r"""Carbon-leakage rates vs the no-policy (P_carbon = 0) counterfactual (§4f).
 
     The share of the domestic emission cut that reappears abroad as embodied
     carbon in extra imports. NAMED counterfactual (V-D3-4 requires it): the
     no-policy world ``P_carbon = 0`` — at which the CBAM charge (``c·P_c·
     σ_foreign``) also vanishes, so both the carbon price AND its border
-    adjustment switch off together. The counterfactual steel price is re-cleared
-    at ``P_c = 0`` with the SAME demand / import / producer curves.
+    adjustment switch off together.
+
+    **V-D3-5 ruling #2 — the counterfactual holds the BASELINE (un-adopted) σ.**
+    The headline leakage's ``P_c = 0`` counterfactual re-derives the producer at
+    its UN-ADOPTED technology σ (``adopted_tech`` stripped), NOT the
+    post-adoption σ′. So the headline measures the WHOLE-POLICY effect INCLUDING
+    the induced tech-switch: adoption preserves domestic output/emissions, which
+    the un-adopted counterfactual scores as a larger ``e^0`` and hence a lower
+    leakage. A SECONDARY "conditional" leakage holds the counterfactual at the
+    post-adoption σ′ (the tech-switch taken as given); with no adoption the two
+    coincide. Because at ``P_c = 0`` the burden ``B`` vanishes, ``q^0``/``P_s^0``/
+    ``M^0`` are identical under σ and σ′ — only ``e^0 = σ·q^0`` differs.
 
     Algorithm:
         LaTeX:
         $$ L = \sigma_{\mathrm{foreign}}\,
                \frac{M^{*} - M^{0}}{e^{0} - e^{*}_{\mathrm{dom}}}, \qquad
-           (P_s^{0}) : S_{\mathrm{dom}}(P_s^{0}, 0) + M(P_s^{0}, 0) = D(P_s^{0}), $$
-        with ``e^{0} = Σ_i e_i(P_s^{0}, 0)`` the no-policy domestic emissions,
-        ``M^{0} = M(P_s^{0}, 0)`` its imports, ``e^{*}_{dom}`` / ``M^{*}`` the
-        policy-on values at ``(P_s^{*}, P_c^{*})``. Undefined (⇒ 0) when the
-        domestic cut ``e^{0} - e^{*}_{dom}`` is numerically zero.
+           (P_s^{0}) : S_{\mathrm{dom}}^{\,\mathrm{base}}(P_s^{0}, 0)
+                       + M(P_s^{0}, 0) = D(P_s^{0}), $$
+        with the HEADLINE ``e^{0} = Σ_i (\sigma_i) q_i(P_s^0,0)`` at the un-adopted
+        baseline σ and the CONDITIONAL ``e^{0}_{\mathrm{cond}} = Σ_i
+        (\sigma'_i) q_i(P_s^0,0)`` at the post-adoption σ′. Undefined (⇒ 0) when
+        the domestic cut is numerically zero.
 
         ASCII fallback:
-            P_s0 solves S_dom(P_s0,0) + M(P_s0,0) = D(P_s0)
-            e0 = sum e_i(P_s0,0) ; M0 = M(P_s0,0)
-            L  = sigma_foreign*(M_star - M0)/(e0 - e_dom_star)
+            P_s0 solves S_dom_base(P_s0,0) + M(P_s0,0) = D(P_s0)  # un-adopted sigma
+            M0        = M(P_s0,0)
+            e0        = sum sigma_i    * q_i(P_s0,0)   # headline (un-adopted)
+            e0_cond   = sum sigma'_i   * q_i(P_s0,0)   # conditional (post-adopt)
+            L         = sigma_foreign*(M_star - M0)/(e0      - e_dom_star)
+            L_cond    = sigma_foreign*(M_star - M0)/(e0_cond - e_dom_star)
 
         Symbols (units):
             sigma_foreign : foreign carbon intensity of imports [tCO2/t-steel]
             M_star, M0    : policy-on / no-policy imports        [t-steel/period]
             e0, e_dom_star: no-policy / policy-on domestic emissions [tCO2/period]
-            L             : leakage rate                          [dimensionless]
+            L             : headline leakage rate (un-adopted σ)  [dimensionless]
+            L_cond        : conditional leakage (post-adoption σ′) [dimensionless]
 
     Args:
-        producers: The market's producer fleet (sorted; each reads BOTH prices).
+        producers: The market's producer fleet (sorted; each reads BOTH prices)
+            carrying the CONVERGED adoption floor on ``params.adopted_tech``.
         demand: The product demand curve.
         imports: The import-supply schedule (its ``sigma_foreign`` is the foreign
             carbon intensity used as the leakage numerator's per-unit factor).
@@ -320,33 +330,45 @@ def _leakage_diagnostic(
         price_carbon: The policy-on carbon price ``P_c^*`` [currency/tCO2].
 
     Returns:
-        The leakage rate ``L`` [dimensionless]; 0.0 when there is no domestic cut
-        (no policy bite) or no foreign carbon channel (``sigma_foreign = 0``).
+        ``(headline, conditional)`` leakage rates [dimensionless]; ``(0.0, 0.0)``
+        when there is no domestic cut (no policy bite) or no foreign carbon
+        channel (``sigma_foreign = 0``).
     """
     sigma_foreign = float(imports.sigma_foreign)
     if sigma_foreign == 0.0:
-        return 0.0
+        return 0.0, 0.0
 
-    def _domestic_supply(P_s: float, P_c: float) -> float:
-        return sum(p.product_supply(P_s, P_c) for p in producers)
+    # The un-adopted (baseline-σ) counterparts of each producer's params: the
+    # clean-tech floor stripped so the P_c = 0 counterfactual world holds the
+    # BASELINE technology (ruling #2). With no adoption this is the same object.
+    base_params = [replace(p.params, adopted_tech=frozenset()) for p in producers]
 
-    def _domestic_emissions(P_s: float, P_c: float) -> float:
-        return sum(optimize_producer(p.params, P_s, P_c).emissions for p in producers)
+    def _base_supply(P_s: float, P_c: float) -> float:
+        return sum(optimize_producer(pp, P_s, P_c).q for pp in base_params)
 
-    # Policy-on: imports at the cleared pair (incl. the CBAM shift) + domestic cut.
+    def _emissions(params_list: list[ProducerParams], P_s: float, P_c: float) -> float:
+        return sum(optimize_producer(pp, P_s, P_c).emissions for pp in params_list)
+
+    # Policy-on: imports at the cleared pair (incl. the CBAM shift) + domestic cut
+    # at the ACTUAL (post-adoption) technology.
     m_star = float(imports(price_steel, price_carbon))
-    e_dom_star = _domestic_emissions(price_steel, price_carbon)
+    e_dom_star = _emissions([p.params for p in producers], price_steel, price_carbon)
 
-    # No-policy counterfactual: re-clear the steel market at P_c = 0.
-    cf = solve_product_equilibrium(_domestic_supply, 0.0, demand, imports)
+    # No-policy counterfactual: re-clear the steel market at P_c = 0 under the
+    # UN-ADOPTED baseline supply (identical to the adopted supply here, since the
+    # burden vanishes at P_c = 0 — see the docstring).
+    cf = solve_product_equilibrium(_base_supply, 0.0, demand, imports)
     price_steel_0 = float(cf["price"])
     m_0 = float(imports(price_steel_0, 0.0))
-    e_0 = _domestic_emissions(price_steel_0, 0.0)
+    e_0_headline = _emissions(base_params, price_steel_0, 0.0)  # baseline σ
+    e_0_conditional = _emissions([p.params for p in producers], price_steel_0, 0.0)  # σ′
 
-    domestic_cut = e_0 - e_dom_star
-    if abs(domestic_cut) < _LEAKAGE_MIN_CUT:
-        return 0.0
-    return sigma_foreign * (m_star - m_0) / domestic_cut
+    numerator = sigma_foreign * (m_star - m_0)
+    cut_headline = e_0_headline - e_dom_star
+    cut_conditional = e_0_conditional - e_dom_star
+    headline = 0.0 if abs(cut_headline) < _LEAKAGE_MIN_CUT else numerator / cut_headline
+    conditional = 0.0 if abs(cut_conditional) < _LEAKAGE_MIN_CUT else numerator / cut_conditional
+    return headline, conditional
 
 
 def _solve_one_market(market: CarbonMarket) -> dict[str, Any]:
@@ -408,8 +430,12 @@ def _solve_one_market(market: CarbonMarket) -> dict[str, Any]:
     # (P_carbon = 0 ⇒ the CBAM charge is inactive too, since it scales with P_c).
     # Stashed in the equilibrium bundle; surfaced as the guarded "Leakage Rate"
     # column ONLY on multi-market product rows (dispatch._stamp_multi_market_
-    # columns), so a single-market / carbon-only run never carries it.
-    leakage_rate = _leakage_diagnostic(producers, demand, imports, price_steel, carbon_price)
+    # columns), so a single-market / carbon-only run never carries it. The
+    # headline holds the P_c=0 counterfactual at the UN-ADOPTED σ (ruling #2);
+    # the conditional holds it at the post-adoption σ′ (a secondary diagnostic).
+    leakage_rate, conditional_leakage_rate = _leakage_diagnostic(
+        producers, demand, imports, price_steel, carbon_price
+    )
 
     # R37 (D3 adaptation, spec §7): the ACTUAL steel↔carbon joint loop gain
     # g = s_c·s_s from the linearised 2×2 clearing Jacobian at this operating
@@ -453,16 +479,41 @@ def _solve_one_market(market: CarbonMarket) -> dict[str, Any]:
             carbon_price,
         )
 
+    outcomes = {
+        str(spec["name"]): optimize_producer(
+            params_by_name[str(spec["name"])], price_steel, carbon_price
+        )
+        for spec in producer_specs
+    }
     rows = [
         _producer_row(
-            market.scenario_name,
-            market.year,
-            str(spec["name"]),
-            optimize_producer(params_by_name[str(spec["name"])], price_steel, carbon_price),
+            market.scenario_name, market.year, str(spec["name"]), outcomes[str(spec["name"])]
         )
         for spec in producer_specs
     ]
     participant_df = pd.DataFrame.from_records(rows)
+
+    # OBA cap-relaxation diagnostic (V-D3-5 ruling #4): output-based allocation
+    # issues φ·Σq free allowances ON TOP of the auctioned cap, so at a binding
+    # carbon price residual Σe = Cap + φ·Σq — OBA is cap-RELAXING (contrast CBAM,
+    # cap-PRESERVING Σe=Cap). Surface φ·Σq (the cap relaxation) and the residual
+    # gross emissions so the relaxation is never hidden. The multi-commodity
+    # producer's OBA is always the marginal output-based design.
+    oba_free_allocation = sum(
+        params_by_name[str(spec["name"])].phi_oba * outcomes[str(spec["name"])].q
+        for spec in producer_specs
+    )
+    gross_emissions = sum(outcomes[str(spec["name"])].emissions for spec in producer_specs)
+    oba_mode = str(getattr(market, "product_oba_mode", "output_based"))
+
+    # Clean-tech adoption trigger P* = M·θ (ruling #1): the nearest carbon price
+    # that fires a switch — REPORTED so the user sees "the price that triggers the
+    # switch" even though θ and M are kept separate. min over every option.
+    trigger_prices = [
+        opt.p_star
+        for spec in producer_specs
+        for opt in params_by_name[str(spec["name"])].technology_options
+    ]
 
     # Equilibrium bundle: the T0 clearing result PLUS the auction-shaped keys the
     # summary host (scenario_summary(auction_outcome=...)) reads — inert here, as
@@ -474,7 +525,13 @@ def _solve_one_market(market: CarbonMarket) -> dict[str, Any]:
         "unsold_allowances": 0.0,
         "coverage_ratio": 1.0,
         "leakage_rate": leakage_rate,
+        "conditional_leakage_rate": conditional_leakage_rate,
+        "oba_free_allocation": oba_free_allocation,
+        "oba_mode": oba_mode,
+        "gross_emissions": gross_emissions,
     }
+    if trigger_prices:
+        equilibrium["clean_tech_trigger_price"] = min(trigger_prices)
 
     logger.debug(
         "product market %r year %r cleared: P_s=%.6g, D=%.6g, S_dom=%.6g, M=%.6g (P_c=%.6g)",

@@ -202,7 +202,7 @@ def test_beta_non_positive_rejected() -> None:
 
 # ── D3-5 cleaner-tech adoption (the long-run intensity margin, spec §4g) ────────
 
-_H2 = CleanTechOption(name="H2-DRI", sigma_prime=3.0, trigger=9.0)
+_H2 = CleanTechOption(name="H2-DRI", sigma_prime=3.0, theta=9.0)
 
 
 def test_effective_intensity_takes_the_lowest_adopted_option() -> None:
@@ -211,17 +211,84 @@ def test_effective_intensity_takes_the_lowest_adopted_option() -> None:
     assert effective_intensity(5.0, options, frozenset()) == 5.0
     assert effective_intensity(5.0, options, frozenset({"H2-DRI"})) == 3.0
     # Two options: the lowest adopted wins (monotone downward shift).
-    both = (_H2, CleanTechOption(name="CCS", sigma_prime=4.0, trigger=6.0))
+    both = (_H2, CleanTechOption(name="CCS", sigma_prime=4.0, theta=6.0))
     assert effective_intensity(5.0, both, frozenset({"H2-DRI", "CCS"})) == 3.0
 
 
 def test_propose_adoptions_fires_only_at_or_above_the_trigger() -> None:
-    """Monotone trigger read: adopt iff P_c ≥ trigger and not already adopted."""
+    """Monotone trigger read: adopt iff P_c ≥ P* and not already adopted."""
     assert propose_clean_tech_adoptions((_H2,), 8.999, frozenset()) == []
     assert propose_clean_tech_adoptions((_H2,), 9.0, frozenset()) == ["H2-DRI"]
     assert propose_clean_tech_adoptions((_H2,), 20.0, frozenset()) == ["H2-DRI"]
     # Already adopted ⇒ no re-proposal (the caller's monotone floor).
     assert propose_clean_tech_adoptions((_H2,), 20.0, frozenset({"H2-DRI"})) == []
+
+
+def test_break_even_trigger_reports_p_star_equal_theta() -> None:
+    """Ruling #1: break_even mode ⇒ M ≡ 1 ⇒ P* = θ (the D3-6 golden mode)."""
+    np.testing.assert_allclose(_H2.trigger_multiple(), 1.0, rtol=0, atol=0)
+    np.testing.assert_allclose(_H2.p_star, 9.0, rtol=0, atol=0)
+
+
+def test_option_value_trigger_multiple_matches_core_investment() -> None:
+    """Ruling #1: option_value M = β/(β−1) reuses core.investment, P* = M·θ.
+
+    Analytical anchor: the certainty limit (σ_eff = 0 via credibility q = 1)
+    is the pure timing wedge M = r/y (paper A.10), so P* = (r/y)·θ.
+    """
+    from pe.core.investment import effective_volatility, trigger_multiple
+
+    opt = CleanTechOption(
+        name="H2-DRI",
+        sigma_prime=3.0,
+        theta=9.0,
+        trigger_mode="option_value",
+        sigma=0.48,
+        credibility=0.0,
+        discount_rate=0.055,
+        payout_yield=0.03,
+    )
+    expected_M = trigger_multiple(effective_volatility(0.48, 0.0), 0.055, 0.03)
+    np.testing.assert_allclose(opt.trigger_multiple(), expected_M, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(opt.p_star, expected_M * 9.0, rtol=0, atol=1e-12)
+    assert opt.p_star > 9.0  # the option-value wedge sits ABOVE the break-even θ
+
+    # Certainty limit q = 1 ⇒ σ_eff = 0 ⇒ M = r/y (0.055/0.03), P* = (r/y)·θ.
+    certain = CleanTechOption(
+        name="H2-DRI",
+        sigma_prime=3.0,
+        theta=9.0,
+        trigger_mode="option_value",
+        sigma=0.48,
+        credibility=1.0,
+        discount_rate=0.055,
+        payout_yield=0.03,
+    )
+    np.testing.assert_allclose(certain.trigger_multiple(), 0.055 / 0.03, rtol=0, atol=1e-12)
+
+
+def test_trigger_multiple_override_pins_m_directly() -> None:
+    """Ruling #1: trigger_multiple_override pins M (the M=1 escape hatch)."""
+    override = CleanTechOption(
+        name="H2-DRI", sigma_prime=3.0, theta=9.0, trigger_multiple_override=1.0
+    )
+    np.testing.assert_allclose(override.p_star, 9.0, rtol=0, atol=0)
+    lifted = CleanTechOption(
+        name="H2-DRI", sigma_prime=3.0, theta=9.0, trigger_multiple_override=2.0
+    )
+    np.testing.assert_allclose(lifted.p_star, 18.0, rtol=0, atol=0)
+
+
+def test_option_value_requires_well_posed_r_and_y() -> None:
+    """option_value with no override needs r > 0 and y > 0 (fail loud, ruling #1)."""
+    with pytest.raises(ValueError, match="discount_rate"):
+        CleanTechOption(
+            name="x", sigma_prime=3.0, theta=9.0, trigger_mode="option_value", payout_yield=0.03
+        )
+    with pytest.raises(ValueError, match="payout_yield"):
+        CleanTechOption(
+            name="x", sigma_prime=3.0, theta=9.0, trigger_mode="option_value", discount_rate=0.055
+        )
 
 
 def test_adopted_intensity_feeds_the_output_foc_analytically() -> None:
@@ -246,10 +313,16 @@ def test_adopted_intensity_feeds_the_output_foc_analytically() -> None:
 
 
 def test_clean_tech_option_validates_bounds() -> None:
-    """σ' and trigger must be finite and non-negative; name non-empty."""
+    """σ' and θ must be finite and positive; name non-empty; mode in the set."""
     with pytest.raises(ValueError, match="sigma_prime"):
-        CleanTechOption(name="x", sigma_prime=-1.0, trigger=9.0)
-    with pytest.raises(ValueError, match="trigger"):
-        CleanTechOption(name="x", sigma_prime=3.0, trigger=-1.0)
+        CleanTechOption(name="x", sigma_prime=-1.0, theta=9.0)
+    with pytest.raises(ValueError, match="theta"):
+        CleanTechOption(name="x", sigma_prime=3.0, theta=-1.0)
+    with pytest.raises(ValueError, match="theta"):
+        CleanTechOption(name="x", sigma_prime=3.0, theta=0.0)
     with pytest.raises(ValueError, match="name"):
-        CleanTechOption(name="", sigma_prime=3.0, trigger=9.0)
+        CleanTechOption(name="", sigma_prime=3.0, theta=9.0)
+    with pytest.raises(ValueError, match="trigger_mode"):
+        CleanTechOption(name="x", sigma_prime=3.0, theta=9.0, trigger_mode="bogus")
+    with pytest.raises(ValueError, match="trigger_multiple_override"):
+        CleanTechOption(name="x", sigma_prime=3.0, theta=9.0, trigger_multiple_override=0.5)

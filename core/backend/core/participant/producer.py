@@ -34,11 +34,15 @@ bracket/iteration machinery to tune).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
 from ..costs import linear_abatement_factory
+from ..investment import effective_volatility
+from ..investment import trigger_multiple as _dixit_pindyck_multiple
 from ..logger import get_logger
 from .models import ComplianceOutcome
 
@@ -52,6 +56,7 @@ __all__ = [
     "MultiCommodityProducer",
     "effective_intensity",
     "propose_clean_tech_adoptions",
+    "clean_tech_option_from_spec",
 ]
 
 
@@ -62,23 +67,83 @@ class CleanTechOption:
     The long-run (third) decarbonisation margin (``docs/multi-commodity-spec.md``
     §4g): a Dixit-Pindyck-style discrete adoption that permanently shifts the
     producer's baseline emission intensity DOWN from :math:`\sigma` to
-    :math:`\sigma' < \sigma` once the carbon price crosses the option's trigger
-    :math:`P^{*}` (the effective break-even :math:`M\theta`, the option-value
-    multiple ``M`` folded into the config trigger). Adoption is IRREVERSIBLE
-    (monotone across sweeps) and reintroduces the eventually-continuous discrete
-    kink the joint engine's adoption-as-outer-floor machinery handles.
+    :math:`\sigma' < \sigma` once the carbon price crosses the option's ADOPTION
+    TRIGGER :math:`P^{*}`. Adoption is IRREVERSIBLE (monotone across sweeps) and
+    reintroduces the eventually-continuous discrete kink the joint engine's
+    adoption-as-outer-floor machinery handles.
+
+    **θ/M separation (V-D3-5 ruling #1).** The trigger is NOT a single opaque
+    number: it keeps the Marshallian break-even :math:`\theta` (the static
+    switch price, REQUIRED) and the irreversibility-under-uncertainty multiple
+    :math:`M \ge 1` SEPARATE, then reports the derived adoption price
+    :math:`P^{*} = M\,\theta`. The multiple is resolved by ``trigger_mode``,
+    REUSING the Phase-1 Dixit-Pindyck math (``core.investment``) — this class
+    never re-derives the fundamental quadratic:
+
+    * ``"break_even"`` — ``M ≡ 1`` (static NPV switch, ``P* = θ``); the D3-6
+      flagship golden uses this, so a folded ``P* = θ`` ships unchanged in value.
+    * ``"option_value"`` — ``M = β/(β−1)`` from the M-inputs
+      ``(sigma, credibility, discount_rate, payout_yield)`` via
+      ``trigger_multiple(effective_volatility(σ, q), r, y)``; the option-value
+      wedge that discards nothing of the irreversibility economics.
+
+    ``trigger_multiple_override`` pins ``M`` directly (the documented ``M = 1``
+    escape hatch / sensitivity knob), bypassing the mode.
+
+    Algorithm:
+        LaTeX:
+        $$ P^{*} = M\,\theta, \qquad
+           M = \begin{cases}
+                 M_{\mathrm{override}} & \text{override set} \\
+                 1 & \texttt{break\_even} \\
+                 \dfrac{\beta}{\beta-1}\big(\sigma_{\mathrm{eff}}, r, y\big)
+                   & \texttt{option\_value}
+               \end{cases}, \quad \sigma_{\mathrm{eff}} = (1-q)\,\sigma. $$
+        ASCII fallback:
+            M     = override                              (when set)
+                  | 1                                     (break_even)
+                  | trigger_multiple((1-q)*sigma, r, y)   (option_value)
+            P_star = M * theta   ;   adopt iff P_carbon >= P_star
+        Symbols (units):
+            theta   : Marshallian break-even price θ       [currency / tCO2]
+            M       : option-value trigger multiple (>= 1) [dimensionless]
+            sigma   : annualized price volatility σ        [1/sqrt(yr)]
+            q       : credibility of the announced price   [dimensionless, [0,1]]
+            r       : discount rate                        [1/yr]
+            y       : payout/convenience yield             [1/yr]
+            P_star  : adoption trigger P* = M·θ            [currency / tCO2]
 
     Attributes:
         name: Option name (adoption-event ``technology_name`` key).
         sigma_prime: Post-adoption baseline intensity :math:`\sigma'`
             [tCO2 / t-steel]; MUST be finite and ``>= 0``.
-        trigger: Carbon-price adoption trigger :math:`P^{*}` [currency / tCO2];
-            adopt when ``P_carbon >= trigger``. MUST be finite and ``>= 0``.
+        theta: Marshallian break-even price :math:`\theta` [currency / tCO2];
+            REQUIRED, finite and ``> 0`` (the static switch price). In
+            ``break_even`` mode this IS the adoption trigger ``P*``.
+        trigger_mode: ``"break_even"`` (``M ≡ 1``) or ``"option_value"``
+            (``M`` from the M-inputs). Default ``"break_even"``.
+        payout_yield: Payout/convenience yield ``y`` [1/yr]; REQUIRED and
+            ``> 0`` in ``option_value`` mode (unused otherwise).
+        sigma: Annualized price volatility ``σ`` [1/sqrt(yr)]; ``>= 0``
+            (``option_value``).
+        credibility: Credibility ``q`` of the announced price schedule
+            [dimensionless] in ``[0, 1]`` (``option_value``).
+        discount_rate: Discount rate ``r`` [1/yr]; REQUIRED and ``> 0`` in
+            ``option_value`` mode (unused otherwise).
+        trigger_multiple_override: Pins ``M`` directly (``>= 1`` when set),
+            bypassing ``trigger_mode``; ``None`` (default) resolves ``M`` from
+            the mode.
     """
 
     name: str
     sigma_prime: float
-    trigger: float
+    theta: float
+    trigger_mode: str = "break_even"
+    payout_yield: float = 0.0
+    sigma: float = 0.0
+    credibility: float = 0.0
+    discount_rate: float = 0.0
+    trigger_multiple_override: float | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -88,11 +153,108 @@ class CleanTechOption:
                 f"CleanTechOption({self.name!r}).sigma_prime must be finite and >= 0 "
                 f"(got {self.sigma_prime!r})."
             )
-        if not np.isfinite(self.trigger) or self.trigger < 0.0:
+        if not np.isfinite(self.theta) or self.theta <= 0.0:
             raise ValueError(
-                f"CleanTechOption({self.name!r}).trigger must be finite and >= 0 "
-                f"(got {self.trigger!r})."
+                f"CleanTechOption({self.name!r}).theta (Marshallian break-even) must be "
+                f"finite and > 0 [currency/tCO2] (got {self.theta!r})."
             )
+        if self.trigger_mode not in ("break_even", "option_value"):
+            raise ValueError(
+                f"CleanTechOption({self.name!r}).trigger_mode must be one of "
+                f"{{'break_even', 'option_value'}} (got {self.trigger_mode!r})."
+            )
+        if self.trigger_multiple_override is not None and not (
+            np.isfinite(self.trigger_multiple_override) and self.trigger_multiple_override >= 1.0
+        ):
+            raise ValueError(
+                f"CleanTechOption({self.name!r}).trigger_multiple_override must be finite "
+                f"and >= 1 when set (got {self.trigger_multiple_override!r})."
+            )
+        if not (np.isfinite(self.credibility) and 0.0 <= self.credibility <= 1.0):
+            raise ValueError(
+                f"CleanTechOption({self.name!r}).credibility must be in [0, 1] "
+                f"(got {self.credibility!r})."
+            )
+        if not (np.isfinite(self.sigma) and self.sigma >= 0.0):
+            raise ValueError(
+                f"CleanTechOption({self.name!r}).sigma must be finite and >= 0 "
+                f"(got {self.sigma!r})."
+            )
+        # Option-value mode with no override needs a well-posed (r, y) — fail loud
+        # at construction, not deep in the fixed point (mirrors AdoptionSpec D6).
+        if self.trigger_mode == "option_value" and self.trigger_multiple_override is None:
+            if not (np.isfinite(self.discount_rate) and self.discount_rate > 0.0):
+                raise ValueError(
+                    f"CleanTechOption({self.name!r}): option_value mode requires "
+                    f"discount_rate > 0 [1/yr] (got {self.discount_rate!r})."
+                )
+            if not (np.isfinite(self.payout_yield) and self.payout_yield > 0.0):
+                raise ValueError(
+                    f"CleanTechOption({self.name!r}): option_value mode requires "
+                    f"payout_yield > 0 [1/yr] (got {self.payout_yield!r})."
+                )
+
+    def trigger_multiple(self) -> float:
+        r"""Resolve the option-value multiple :math:`M \ge 1` (θ/M separation).
+
+        Precedence (ruling #1): ``trigger_multiple_override`` wins when set;
+        ``break_even`` pins ``M = 1``; ``option_value`` computes
+        ``M = β/(β−1)`` at the credibility-reduced volatility, REUSING
+        ``core.investment`` (never re-deriving the fundamental quadratic).
+
+        Returns:
+            The trigger multiple ``M`` [dimensionless, ``>= 1``].
+        """
+        if self.trigger_multiple_override is not None:
+            return float(self.trigger_multiple_override)
+        if self.trigger_mode == "break_even":
+            return 1.0
+        return _dixit_pindyck_multiple(
+            effective_volatility(self.sigma, self.credibility),
+            self.discount_rate,
+            self.payout_yield,
+        )
+
+    @property
+    def p_star(self) -> float:
+        r"""The reported adoption trigger :math:`P^{*} = M\,\theta` [currency/tCO2].
+
+        The carbon price at which the switch fires — the DIAGNOSTIC the engine
+        surfaces so the user still sees "the carbon price that triggers the
+        switch" (ruling #1). Equals ``θ`` in ``break_even`` mode.
+        """
+        return self.trigger_multiple() * self.theta
+
+
+def clean_tech_option_from_spec(spec: Mapping[str, Any]) -> CleanTechOption:
+    r"""Build a :class:`CleanTechOption` from a normalised option spec dict.
+
+    The single construction seam for the (config door → engine) boundary: the
+    product plugin normalises a raw option to the flat ``{name, sigma_prime,
+    theta, trigger_mode, payout_yield, sigma, credibility, discount_rate,
+    trigger_multiple_override}`` spelling, and every runtime site (solver leg
+    build, dispatch adoption proposal) constructs through HERE so the θ/M
+    surface (ruling #1) is read identically everywhere. Tolerant of the legacy
+    ``trigger`` spelling (mapped to ``theta``) for round-trip safety.
+
+    Args:
+        spec: One normalised technology-option dict.
+
+    Returns:
+        The frozen :class:`CleanTechOption` (validated at construction).
+    """
+    override = spec.get("trigger_multiple_override")
+    return CleanTechOption(
+        name=str(spec["name"]),
+        sigma_prime=float(spec["sigma_prime"]),
+        theta=float(spec["theta"] if "theta" in spec else spec["trigger"]),
+        trigger_mode=str(spec.get("trigger_mode", "break_even")),
+        payout_yield=float(spec.get("payout_yield", 0.0)),
+        sigma=float(spec.get("sigma", 0.0)),
+        credibility=float(spec.get("credibility", 0.0)),
+        discount_rate=float(spec.get("discount_rate", 0.0)),
+        trigger_multiple_override=None if override is None else float(override),
+    )
 
 
 def effective_intensity(
@@ -137,11 +299,13 @@ def propose_clean_tech_adoptions(
 
     A pure trigger read (``docs/multi-commodity-spec.md`` §4g): an option not yet
     in ``adopted_names`` is proposed for adoption iff the carbon price has reached
-    its trigger, ``P_carbon >= trigger``. Deterministic (options are read in
-    declaration order); returns only the NEW names, so unioning with the floor is
-    monotone. Ex-post regret (a post-adoption price below the trigger) is
-    permitted and does NOT un-adopt — that is the caller's monotone-floor
-    contract, not re-checked here.
+    its adoption trigger, ``P_carbon >= option.p_star`` with
+    :math:`P^{*} = M\,\theta` (the θ/M-separated trigger of ruling #1, ``P* = θ``
+    in ``break_even`` mode). Deterministic (options are read in declaration
+    order); returns only the NEW names, so unioning with the floor is monotone.
+    Ex-post regret (a post-adoption price below the trigger) is permitted and
+    does NOT un-adopt — that is the caller's monotone-floor contract, not
+    re-checked here.
 
     Args:
         options: The producer's clean-tech options.
@@ -156,7 +320,7 @@ def propose_clean_tech_adoptions(
     return [
         option.name
         for option in options
-        if option.name not in adopted_names and P_c >= float(option.trigger)
+        if option.name not in adopted_names and P_c >= option.p_star
     ]
 
 

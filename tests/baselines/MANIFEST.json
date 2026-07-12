@@ -1,8 +1,8 @@
 {
- "git_sha": "7b94c2d88f868c6de5aa6b4435b94ba5091e1ee9",
+ "git_sha": "61c3170d6d040f69cbabe3496e31c013e209e753",
  "git_dirty": true,
  "captured": "2026-07-12",
- "command": "uv run python tests/baselines/_capture.py --only cbam_border_adjustment,ccr_cost_containment,hotelling_budget,oba_output_allocation,transmission_lambda",
+ "command": "uv run python tests/baselines/_capture.py --only steel_carbon_joint",
  "environment": {
   "python": "3.12.10",
   "numpy": "2.5.1",
@@ -171,10 +171,24 @@
     24,
     36
    ]
+  },
+  "steel_carbon_joint": {
+   "status": "CAPTURED",
+   "reused": false,
+   "entry_point": "ets.run_simulation_from_file",
+   "summary_shape": [
+    8,
+    65
+   ],
+   "participants_shape": [
+    16,
+    41
+   ]
   }
  },
  "audit_log": [
   "2026-07-12: capture at 2b0af9b (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3",
-  "2026-07-12: capture at 7b94c2d [only: cbam_border_adjustment, ccr_cost_containment, hotelling_budget, oba_output_allocation, transmission_lambda] (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3"
+  "2026-07-12: capture at 7b94c2d [only: cbam_border_adjustment, ccr_cost_containment, hotelling_budget, oba_output_allocation, transmission_lambda] (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3",
+  "2026-07-12: capture at 61c3170 [only: steel_carbon_joint] (dirty tree) under python 3.12.10 / numpy 2.5.1 / scipy 1.18.0 / pandas 3.0.3"
  ]
 }

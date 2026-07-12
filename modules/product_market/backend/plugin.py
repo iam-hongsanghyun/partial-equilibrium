@@ -58,9 +58,11 @@ DEFAULTS: dict[str, Any] = {
     "cbam_sigma_foreign": 0.0,  # sigma_foreign [tCO2/t-steel]
     "producer_phi_oba": 0.0,  # phi_OBA [tCO2/t-steel] — OBA benchmark
     "producer_f_lump": 0.0,  # F_lump [tCO2/yr] — lump-sum free allocation
+    "oba_mode": "output_based",  # cap-relaxing marginal OBA (vs fixed_cap)
 }
 
 _ALLOWED_DEMAND_FORMS = ("linear", "isoelastic")
+_ALLOWED_OBA_MODES = ("output_based", "fixed_cap")
 _PRODUCER_KIND = "producer"
 
 
@@ -308,10 +310,17 @@ def _normalize_technology_options(
 
     Each option is a Dixit-Pindyck-style discrete adoption dropping the baseline
     intensity from ``sigma`` to a lower ``sigma_prime`` once the carbon price
-    crosses ``trigger``. Empty / absent by default (the off-by-default long-run
-    margin). Idempotent: the normalised flat spelling (``sigma_prime``/``trigger``)
-    is accepted alongside the raw (``intensity``/``clean_intensity``/
-    ``trigger_price``) spelling, so the second normalisation pass round-trips.
+    crosses the adoption trigger ``P* = M·θ``. Per V-D3-5 ruling #1 the trigger
+    keeps the Marshallian break-even ``theta`` (REQUIRED) SEPARATE from the
+    option-value multiple ``M`` (``trigger_mode`` ∈ {``break_even`` ⇒ ``M≡1``,
+    ``option_value`` ⇒ ``M`` from the M-inputs σ/credibility/r/y}, or a direct
+    ``trigger_multiple_override``). Empty / absent by default (the off-by-default
+    long-run margin). Idempotent: the normalised flat spelling is accepted
+    alongside the raw spelling, so the second normalisation pass round-trips.
+
+    Backward-compat: the pre-ruling ``trigger`` / ``trigger_price`` spelling maps
+    to ``theta`` (in the default ``break_even`` mode ``P* = θ``, so an existing
+    config's firing price is unchanged in value).
 
     Args:
         raw: The raw ``technology_options`` list (or ``None``).
@@ -321,8 +330,9 @@ def _normalize_technology_options(
         name: The producer name (error attribution).
 
     Returns:
-        The normalised options ``[{name, sigma_prime, trigger}, ...]`` (``[]`` when
-        absent).
+        The normalised options ``[{name, sigma_prime, theta, trigger_mode,
+        payout_yield, sigma, credibility, discount_rate,
+        trigger_multiple_override}, ...]`` (``[]`` when absent).
     """
     if raw is None:
         return []
@@ -344,7 +354,22 @@ def _normalize_technology_options(
         sigma_prime = _fnum_alias(
             opt, ("sigma_prime", "clean_intensity", "intensity"), 0.0, label=opt_label
         )
-        trigger = _fnum_alias(opt, ("trigger", "trigger_price"), 0.0, label=opt_label)
+        # θ (Marshallian break-even) — REQUIRED; the legacy ``trigger`` spelling
+        # maps here (break_even ⇒ P* = θ, unchanged firing value).
+        theta = _fnum_alias(
+            opt, ("theta", "break_even", "trigger", "trigger_price"), 0.0, label=opt_label
+        )
+        trigger_mode = str(opt.get("trigger_mode", "break_even")).strip()
+        payout_yield = _fnum_alias(opt, ("payout_yield", "y"), 0.0, label=opt_label)
+        opt_sigma = _fnum_alias(opt, ("sigma", "volatility"), 0.0, label=opt_label)
+        credibility = _fnum_alias(opt, ("credibility", "q"), 0.0, label=opt_label)
+        discount_rate = _fnum_alias(opt, ("discount_rate", "r"), 0.0, label=opt_label)
+        override_raw = opt.get("trigger_multiple_override")
+        trigger_multiple_override = (
+            None
+            if override_raw is None
+            else _fnum(opt, "trigger_multiple_override", 0.0, label=opt_label)
+        )
         if sigma_prime < 0.0:
             raise ValueError(f"{opt_label}: sigma_prime must be >= 0, got {sigma_prime}.")
         if sigma_prime > sigma:
@@ -352,9 +377,29 @@ def _normalize_technology_options(
                 f"{opt_label}: sigma_prime ({sigma_prime}) must be <= the baseline intensity "
                 f"σ ({sigma}) — a clean-tech option lowers intensity, it cannot raise it."
             )
-        if trigger < 0.0:
-            raise ValueError(f"{opt_label}: trigger must be >= 0, got {trigger}.")
-        options.append({"name": opt_name, "sigma_prime": sigma_prime, "trigger": trigger})
+        if theta <= 0.0:
+            raise ValueError(
+                f"{opt_label}: theta (Marshallian break-even, alias trigger) must be > 0, "
+                f"got {theta}."
+            )
+        if trigger_mode not in ("break_even", "option_value"):
+            raise ValueError(
+                f"{opt_label}: trigger_mode must be one of {{'break_even', 'option_value'}}, "
+                f"got {trigger_mode!r}."
+            )
+        options.append(
+            {
+                "name": opt_name,
+                "sigma_prime": sigma_prime,
+                "theta": theta,
+                "trigger_mode": trigger_mode,
+                "payout_yield": payout_yield,
+                "sigma": opt_sigma,
+                "credibility": credibility,
+                "discount_rate": discount_rate,
+                "trigger_multiple_override": trigger_multiple_override,
+            }
+        )
     return options
 
 
@@ -460,11 +505,18 @@ def normalize_product_body(raw_body: Mapping[str, Any], *, label: str) -> dict[s
 
     years = _normalize_years(body.get("years"), label=label)
 
+    oba_mode = str(body.get("oba_mode", DEFAULTS["oba_mode"])).strip()
+    if oba_mode not in _ALLOWED_OBA_MODES:
+        raise ValueError(
+            f"{label}: oba_mode must be one of {list(_ALLOWED_OBA_MODES)}, got {oba_mode!r}."
+        )
+
     normalized: dict[str, Any] = {
         "model_approach": "product",
         "carbon_price": carbon_price,
         "product_demand": product_demand,
         "import_supply": import_supply,
+        "oba_mode": oba_mode,
         "years": years,
     }
     # D1 flow-vocabulary pass-through (docs/platform-spec-d0-d1.md §2e/§6): a
