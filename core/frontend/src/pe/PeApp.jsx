@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import App from "../app.jsx";
+import { PeModelView } from "./PeModelView.jsx";
 
 // PE — model-scoped shell. Reached only via `?mode=pe` (see main.jsx).
 // LANDING: a plain list of models from GET /api/templates (this file does
@@ -8,15 +8,13 @@ import App from "../app.jsx";
 // GET /api/model-manifest?id=<id>, fetched in small concurrent batches and
 // cached for the life of the shell (see fetchManifestsBatched / manifest
 // cache below) so re-visiting the landing page never re-fetches. SELECTED:
-// the same manifest (reused from cache when already fetched) is passed down
-// whole to the SAME App component the default shell uses
-// (App({ enabledFeatures, manifest, initialTemplateId })) so every
-// registry-driven host (Editor's editorSections / participantEditorSections
-// / approachOptions / the modelling-approach lock / the "Banking, borrowing
-// & expectations" visibility, AnalysisView's analysisBullets /
-// summaryPanels, ParticipantPanel's resultStats, GuideView's guideSections,
-// AppShared's makeBlankScenario / makeBlankParticipant / validateScenario)
-// filters automatically — this shell only supplies the manifest.
+// the model is shown as a LEFT-TO-RIGHT block diagram via PeModelView — the
+// same shared ModelGraph canvas the composer uses, but MODULE-LOCKED (the
+// market/mechanism structure is fixed by the loaded model) and DATA-EDITABLE
+// (companies / sectors / technology options can be added, removed, and their
+// values edited, two-way bound to the config through the graph's compile).
+// The manifest still drives the ModelToolbar's module chips; the diagram
+// itself is config-driven (a node/param renders iff the config declares it).
 //
 // No new CSS: reuses .hdr/.hdr-top/.hdr-brand/.hdr-tools (main Header),
 // .panel/.panel-head/.eyebrow (AppShared/AppViews panels),
@@ -273,12 +271,7 @@ export function PeApp() {
   return (
     <div className="app">
       <ModelToolbar name={selected.name} features={selected.manifest?.features} onBack={backToModels} />
-      <App
-        key={selected.id}
-        enabledFeatures={selected.manifest?.features || null}
-        manifest={selected.manifest}
-        initialTemplateId={selected.id}
-      />
+      <PeModelView key={selected.id} templateId={selected.id} />
     </div>
   );
 }

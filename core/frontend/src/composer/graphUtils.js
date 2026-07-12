@@ -2,6 +2,8 @@
 // every rule reads from the block catalogue metadata (ports, params,
 // constraints) served by GET /api/blocks (or the dev fixture).
 
+import { autoLayout } from "./autoLayout.js";
+
 function parseCardinality(cardinality) {
   const text = String(cardinality || "0..n");
   if (text === "1") return { min: 1, max: 1 };
@@ -105,9 +107,23 @@ function serializeGraph({ nodes, edges, viewport }) {
 // document (e.g. loaded from GET /api/graph/from-template).
 function deserializeGraph(graph, catalogue) {
   const positions = graph?.meta?.canvas?.positions || {};
-  const nodes = (graph?.nodes || []).map((node, index) => {
+  const rawNodes = graph?.nodes || [];
+  const rawEdges = graph?.edges || [];
+  // When a graph carries no saved canvas positions (every backend template /
+  // decompiled config does), lay it out LEFT-TO-RIGHT from the edge DAG rather
+  // than dropping nodes on a meaningless grid. A per-node saved position always
+  // wins over the computed one.
+  const layout = autoLayout(
+    rawNodes.map((node) => ({
+      id: node.id,
+      category: blockById(catalogue, node.block)?.category || "unknown",
+      order: node.params?.order,
+    })),
+    rawEdges.map((edge) => ({ source: edge.source, target: edge.target }))
+  );
+  const nodes = rawNodes.map((node, index) => {
     const block = blockById(catalogue, node.block);
-    const fallbackPosition = { x: 80 + (index % 5) * 220, y: 80 + Math.floor(index / 5) * 180 };
+    const fallbackPosition = layout[node.id] || { x: 80 + (index % 5) * 220, y: 80 + Math.floor(index / 5) * 180 };
     return {
       id: node.id,
       type: "blockNode",
@@ -121,7 +137,7 @@ function deserializeGraph(graph, catalogue) {
       },
     };
   });
-  const edges = (graph?.edges || []).map((edge, index) => ({
+  const edges = rawEdges.map((edge, index) => ({
     id: `edge_${index}_${edge.source}_${edge.target}`,
     source: edge.source,
     sourceHandle: edge.sourcePort,
