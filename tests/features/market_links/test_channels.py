@@ -412,7 +412,15 @@ def test_both_channels_are_link_channels() -> None:
 
 def test_link_channels_registry_is_the_reviewed_literal() -> None:
     registry = link_channels()
-    assert set(registry) == {"mac_cost", "invest_break_even"}
+    # The D1 pair plus the D3-4 steel↔carbon shared-agent coupling channels
+    # (docs/multi-commodity-spec.md §7): both stamp the sibling PRICE onto the
+    # shared producer (price-driven — the joint engine stays byte-identical).
+    assert set(registry) == {
+        "mac_cost",
+        "invest_break_even",
+        "carbon_input_price",
+        "output_ref_price",
+    }
     assert registry["mac_cost"] is MacCostChannel
     assert registry["invest_break_even"] is InvestBreakEvenChannel
     # Each value is a zero-argument factory producing a conformant channel.

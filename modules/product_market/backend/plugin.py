@@ -379,10 +379,23 @@ def normalize_product_body(raw_body: Mapping[str, Any], *, label: str) -> dict[s
 
     years = _normalize_years(body.get("years"), label=label)
 
-    return {
+    normalized: dict[str, Any] = {
         "model_approach": "product",
         "carbon_price": carbon_price,
         "product_demand": product_demand,
         "import_supply": import_supply,
         "years": years,
     }
+    # D1 flow-vocabulary pass-through (docs/platform-spec-d0-d1.md §2e/§6): a
+    # product market that participates in a steel↔carbon link must declare
+    # ``price_unit`` (validate_links enforces it on every linked market). Carried
+    # only when present and non-empty, mirroring the carbon body's
+    # ``_OPTIONAL_MARKET_BODY_KEYS`` default-absent rule (byte-identical when
+    # unset). ``flow_label``/``flow_unit`` ride along for display parity.
+    for optional_key in ("flow_label", "flow_unit", "price_unit"):
+        if optional_key in body and body[optional_key] is not None:
+            value = str(body[optional_key]).strip()
+            if not value:
+                raise ValueError(f"{label}: {optional_key}, if present, must be non-empty.")
+            normalized[optional_key] = value
+    return normalized

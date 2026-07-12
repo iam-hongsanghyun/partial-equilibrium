@@ -538,7 +538,96 @@ def _normalize_market_body(raw_body: Mapping[str, Any], *, label: str) -> dict[s
             if not value:
                 raise ValueError(f"{label}: {optional_key}, if present, must be non-empty.")
             body[optional_key] = value
+
+    # producer_ref (D3-4, docs/multi-commodity-spec.md §7 V-D3-3): a carbon market
+    # body may reference the steel-body producer(s) — a build-time EMITTER VIEW
+    # into the SAME param set (single source of truth). Carried through UNRESOLVED
+    # here (raw ``{market, name?/names?}``) OR already RESOLVED
+    # (``{market, producers_by_year}`` — the idempotent re-normalise pass); the
+    # cross-market resolution itself lives in ``_normalize_markets_scenario``,
+    # where every sibling body is in hand. Golden-inert: absent on every carbon
+    # config, so the body normalises byte-identically without it.
+    raw_producer_ref = raw_body.get("producer_ref")
+    if raw_producer_ref is not None:
+        if not isinstance(raw_producer_ref, Mapping):
+            raise ValueError(f"{label}: producer_ref, if present, must be an object.")
+        ref_market = str(raw_producer_ref.get("market", "")).strip()
+        if not ref_market:
+            raise ValueError(f"{label}: producer_ref requires a non-empty 'market' id.")
+        body["producer_ref"] = dict(raw_producer_ref)
     return body
+
+
+def _resolve_producer_refs(bodies_by_id: dict[str, dict[str, Any]], *, scenario_name: str) -> None:
+    r"""Resolve every carbon body's ``producer_ref`` into a per-year emitter view (D3-4).
+
+    The build-time producer_ref expansion (``docs/multi-commodity-spec.md`` §7
+    V-D3-3): a carbon market body carrying ``{"producer_ref": {"market": "steel",
+    "name"/"names": ...}}`` is expanded into a carbon-side EMITTER VIEW of the
+    steel-body producer(s) — a REFERENCE to the SAME param set (single source of
+    truth; the producer is authored ONCE in the steel body). The resolved form
+    ``{"market": ref, "producers_by_year": {year: [producer_spec, ...]}}`` carries
+    the referenced producers' normalised structural params PER YEAR, matched by
+    year label, so the builder can materialise one
+    :class:`~pe.core.participant.producer.MultiCommodityProducer` per view that
+    computes ``e*`` on demand from the stamped price pair each sweep (never a
+    cached copy, never solve-time injection). Idempotent: an already-resolved
+    body (``producers_by_year`` present) is re-resolved deterministically to the
+    same value; a body with no ``producer_ref`` is untouched.
+
+    Args:
+        bodies_by_id: The scenario's normalised market bodies, keyed by market id
+            (mutated in place — resolved bodies gain ``producers_by_year``).
+        scenario_name: For error attribution.
+
+    Raises:
+        ValueError: The referenced market is unknown or is not a product market;
+            or a named producer is absent from a referenced year.
+    """
+    for market_id, body in bodies_by_id.items():
+        ref = body.get("producer_ref")
+        if not ref:
+            continue
+        ref_market = str(ref.get("market", "")).strip()
+        if ref_market not in bodies_by_id:
+            raise ValueError(
+                f"Scenario '{scenario_name}' market '{market_id}': producer_ref points to "
+                f"unknown market '{ref_market}' — known markets are {sorted(bodies_by_id)}."
+            )
+        product_body = bodies_by_id[ref_market]
+        if str(product_body.get("model_approach") or "").strip() != "product":
+            raise ValueError(
+                f"Scenario '{scenario_name}' market '{market_id}': producer_ref must point "
+                f"to a product market, but '{ref_market}' is "
+                f"'{product_body.get('model_approach')}'."
+            )
+        # Optional name filter: ``names`` (list) or ``name`` (single); absent ⇒
+        # every producer of the referenced market (the anchor's two firms).
+        raw_names = ref.get("names")
+        if raw_names is None and ref.get("name") is not None:
+            raw_names = [ref["name"]]
+        names_filter = [str(n) for n in raw_names] if raw_names is not None else None
+
+        producers_by_year: dict[str, list[dict[str, Any]]] = {}
+        for year_body in product_body.get("years") or []:
+            year_label = str(year_body["year"])
+            producers = list(year_body.get("producers") or [])
+            if names_filter is not None:
+                available = {str(p["name"]) for p in producers}
+                missing = [n for n in names_filter if n not in available]
+                if missing:
+                    raise ValueError(
+                        f"Scenario '{scenario_name}' market '{market_id}': producer_ref names "
+                        f"producer(s) {missing} absent from market '{ref_market}' year "
+                        f"'{year_label}' (available: {sorted(available)})."
+                    )
+                producers = [p for p in producers if str(p["name"]) in names_filter]
+            producers_by_year[year_label] = producers
+
+        resolved: dict[str, Any] = {"market": ref_market, "producers_by_year": producers_by_year}
+        if names_filter is not None:
+            resolved["names"] = names_filter
+        body["producer_ref"] = resolved
 
 
 def _normalize_markets_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
@@ -578,7 +667,7 @@ def _normalize_markets_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw_markets, list) or not raw_markets:
         raise ValueError(f"Scenario '{name}': 'markets' must be a non-empty list.")
 
-    markets: list[dict[str, Any]] = []
+    ordered_ids: list[str] = []
     bodies_by_id: dict[str, dict[str, Any]] = {}
     for index, raw_market in enumerate(raw_markets):
         if not isinstance(raw_market, dict):
@@ -590,7 +679,18 @@ def _normalize_markets_scenario(raw_scenario: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Scenario '{name}' markets contains duplicate market_id '{market_id}'.")
         body = _normalize_market_body(raw_market, label=f"Market '{market_id}'")
         bodies_by_id[market_id] = body
-        markets.append({"market_id": market_id, **body})
+        ordered_ids.append(market_id)
+
+    # producer_ref expansion (D3-4): resolve every carbon body's ``producer_ref``
+    # against its referenced product body NOW that all siblings are in hand — the
+    # BUILD-TIME emitter-view expansion (single source of truth, V-D3-3). A no-op
+    # for every scenario without a producer_ref, so the ``markets`` list below is
+    # byte-identical for all committed configs.
+    _resolve_producer_refs(bodies_by_id, scenario_name=name)
+
+    markets: list[dict[str, Any]] = [
+        {"market_id": market_id, **bodies_by_id[market_id]} for market_id in ordered_ids
+    ]
 
     links = validate_links(raw_scenario.get("links") or [], bodies_by_id)
 
@@ -661,6 +761,44 @@ def build_markets_from_file(config_path: str | Path) -> list[CarbonMarket]:
 # attached, so the reporting host emits base columns only over the solver's
 # producer participant frame.
 _PRODUCT_SHELL_PARTICIPANT_NAME = "__product_shell__"
+
+
+def _build_producer_ref_views(producer_ref: Mapping[str, Any], year_label: str) -> list:
+    r"""Materialise a carbon year's producer emitter views from a resolved producer_ref.
+
+    Builds one :class:`~pe.core.participant.producer.MultiCommodityProducer` per
+    referenced steel producer of ``year_label`` (D3-4, spec §7 V-D3-3). Each view
+    is a REFERENCE to the same param set (the producer is authored once in the
+    steel body) and duck-types the ``MarketParticipant`` compliance protocol on
+    the carbon face, so the existing carbon clearing/reporting runs UNCHANGED with
+    a view in its participant list. Deterministic: producers are sorted by name.
+
+    Args:
+        producer_ref: The resolved producer_ref ``{"market", "producers_by_year",
+            ...}`` (from :func:`_resolve_producer_refs`).
+        year_label: The carbon market year whose steel-side producers to view.
+
+    Returns:
+        The year's ``MultiCommodityProducer`` emitter views (``[]`` when the year
+        has no referenced producers).
+    """
+    from ..core.participant.producer import MultiCommodityProducer, ProducerParams
+
+    producers_by_year = producer_ref.get("producers_by_year") or {}
+    specs = list(producers_by_year.get(str(year_label)) or [])
+    views: list = []
+    for spec in sorted(specs, key=lambda s: str(s["name"])):
+        params = ProducerParams(
+            gamma=float(spec["gamma"]),
+            delta=float(spec["delta"]),
+            sigma=float(spec["sigma"]),
+            beta=float(spec["beta"]),
+            a_max=float(spec["a_max"]),
+            phi_oba=float(spec.get("phi_oba", 0.0)),
+            f_lump=float(spec.get("f_lump", 0.0)),
+        )
+        views.append(MultiCommodityProducer(name=str(spec["name"]), params=params))
+    return views
 
 
 def _build_product_markets(scenario: dict[str, Any]) -> list[CarbonMarket]:
@@ -755,6 +893,10 @@ def build_markets_from_config(config: dict[str, Any]) -> list[CarbonMarket]:
             continue
         scenario_meta = {
             "model_approach": scenario.get("model_approach", "competitive"),
+            # producer_ref (D3-4): resolved emitter-view producers by year, or None.
+            # Read only by build_market_from_year's producer_ref expansion; every
+            # non-producer_ref scenario passes None ⇒ byte-identical build.
+            "producer_ref": scenario.get("producer_ref"),
             "discount_rate": scenario.get("discount_rate", 0.04),
             "risk_premium": scenario.get("risk_premium", 0.0),
             "forward_transmission_lambda": scenario.get("forward_transmission_lambda"),
@@ -1003,6 +1145,21 @@ def build_market_from_year(
     participants = _stamp_investment_specs(
         scenario_name, str(year_config["year"]), raw_participants, participants, meta
     )
+
+    # producer_ref emitter-view expansion (D3-4, docs/multi-commodity-spec.md §7
+    # V-D3-3): append the carbon-side MultiCommodityProducer view(s) of the
+    # referenced steel producer(s) for THIS year. Each view computes e* on demand
+    # from the stamped (P_steel, P_carbon) pair each sweep (the output_ref_price
+    # channel stamps P_steel); at build time (prices 0 ⇒ q*=0) it contributes 0
+    # free allocation, so the carbon cap accounting is unmoved (no free-alloc
+    # supply bucket — clearing is purely Σe*=Cap). A no-op when producer_ref is
+    # absent (every carbon golden), so participants stay byte-identical.
+    producer_ref = meta.get("producer_ref")
+    if producer_ref:
+        participants = [
+            *participants,
+            *_build_producer_ref_views(producer_ref, str(year_config["year"])),
+        ]
 
     free_allocations = sum(participant.free_allocation for participant in participants)
     reserved_allowances = float(year_config.get("reserved_allowances", 0.0))

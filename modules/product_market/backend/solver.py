@@ -61,7 +61,113 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-__all__ = ["solve_product_path"]
+__all__ = ["product_scc_loop_gain", "solve_product_path"]
+
+# R37 (D3 adaptation) — the joint SCC loop gain above which damped Gauss-Seidel
+# is not guaranteed to contract (docs/multi-commodity-spec.md §7 R37 ADAPTATION).
+# |g| >= 1 warns; the D3 anchor sits at g = 0.627 and must NOT fire.
+_LOOP_GAIN_WARN_THRESHOLD = 1.0
+
+
+def product_scc_loop_gain(
+    params_list: list[ProducerParams],
+    b_d: float,
+    m: float,
+    price_steel: float,
+    price_carbon: float,
+    *,
+    cbam_coverage: float = 0.0,
+    cbam_sigma_foreign: float = 0.0,
+) -> float:
+    r"""Actual steel↔carbon joint loop gain ``g = s_c · s_s`` (R37, D3 adaptation).
+
+    The shared-agent structural coupling has NO external link coefficient ``φ``
+    and its steel-side response ``s_s`` is not bounded by 1, so R37's conservative
+    ``ĝ = Π|φ|`` (a D1/D2 external-link device) does NOT apply (spec §7 R37
+    ADAPTATION). This evaluates the ACTUAL loop gain from the linearised 2×2
+    clearing Jacobian at a given operating point — a cheap closed-form read of the
+    producer FOC slopes plus the demand/import slopes; the cap is a constant and
+    drops out of every derivative, so the whole gain lives in the steel body.
+
+    Algorithm:
+        LaTeX:
+        $$ a_i^{*} = \mathrm{clip}(P_c/\beta_i, 0, a_{\max,i}), \quad
+           \frac{\partial q_i}{\partial P_s} = \frac{1}{\delta_i}\,[q_i>0], \quad
+           \frac{\partial q_i}{\partial P_c}
+             = -\frac{(\sigma_i - a_i^{*}) - \varphi_i}{\delta_i}\,[q_i>0]. $$
+        Carbon clearing $G=\sum_i e_i-\mathrm{Cap}=0$ and steel clearing
+        $H=\sum_i q_i+M-D=0$ give
+        $$ s_c = -\frac{\partial G/\partial P_s}{\partial G/\partial P_c}, \qquad
+           s_s = -\frac{\partial H/\partial P_c}{\partial H/\partial P_s}, \qquad
+           g = s_c\,s_s, $$
+        with $\partial G/\partial P_s=\sum_i(\sigma_i-a_i^{*})\partial q_i/\partial P_s$,
+        $\partial G/\partial P_c=\sum_i[-\dot a_i^{*}q_i+(\sigma_i-a_i^{*})\partial q_i/\partial P_c]$,
+        $\partial H/\partial P_s=\sum_i\partial q_i/\partial P_s+m+b_d$,
+        $\partial H/\partial P_c=\sum_i\partial q_i/\partial P_c-m\,c\,\sigma_{\mathrm{fgn}}$,
+        $\dot a_i^{*}=1/\beta_i$ when the intensity clip is slack, else 0.
+
+        ASCII fallback:
+            per producer i at (P_s, P_c):
+                a       = clip(P_c/beta, 0, a_max);  da = 1/beta if clip slack else 0
+                q       = optimize_producer(i, P_s, P_c).q
+                dq_dPs  = 1/delta if q>0 else 0
+                dB_dPc  = beta*a*da + (sigma-a) - P_c*da - phi_oba
+                dq_dPc  = -dB_dPc/delta if q>0 else 0
+                dG_dPs += (sigma-a)*dq_dPs
+                dG_dPc += -da*q + (sigma-a)*dq_dPc
+                dH_dPs += dq_dPs ; dH_dPc += dq_dPc
+            dH_dPs += m + b_d ; dH_dPc += -m*c*sigma_fgn
+            s_c = -dG_dPs/dG_dPc ; s_s = -dH_dPc/dH_dPs ; g = s_c*s_s
+
+        Symbols (units):
+            P_s        : steel price (operating point)      [currency/t-steel]
+            P_c        : carbon price (operating point)     [currency/tCO2]
+            b_d        : demand slope b_d (>= 0)             [t-steel/period per currency/t]
+            m          : import price-slope (>= 0)          [t-steel/period per currency/t]
+            c, sigma_fgn: CBAM coverage / foreign intensity [-, tCO2/t-steel]
+            s_c, s_s   : carbon/steel structural responses  [dimensionless]
+            g          : joint Gauss-Seidel loop gain       [dimensionless]
+
+    Args:
+        params_list: The producers' validated :class:`ProducerParams`.
+        b_d: Linear-demand slope ``b_d`` [t-steel/period per currency/t]; 0 for a
+            perfectly inelastic (or isoelastic — approximated locally) demand.
+        m: Import price-slope ``m`` [t-steel/period per currency/t].
+        price_steel: Operating steel price ``P_s`` [currency/t-steel].
+        price_carbon: Operating carbon price ``P_c`` [currency/tCO2].
+        cbam_coverage: CBAM coverage ``c`` [dimensionless] (0 = off).
+        cbam_sigma_foreign: Foreign intensity ``σ_foreign`` [tCO2/t-steel].
+
+    Returns:
+        The loop gain ``g`` [dimensionless]; 0 when either clearing slope is
+        degenerate (a decoupled / block-recursive corner).
+    """
+    dG_dPs = 0.0
+    dG_dPc = 0.0
+    dH_dPs_prod = 0.0
+    dH_dPc_prod = 0.0
+    for params in params_list:
+        a = min(params.a_max, max(0.0, price_carbon / params.beta))
+        clip_slack = price_carbon < params.beta * params.a_max
+        da_dPc = (1.0 / params.beta) if clip_slack else 0.0
+        q = optimize_producer(params, price_steel, price_carbon).q
+        dq_dPs = (1.0 / params.delta) if q > 0.0 else 0.0
+        dB_dPc = (
+            params.beta * a * da_dPc + (params.sigma - a) - price_carbon * da_dPc - params.phi_oba
+        )
+        dq_dPc = (-dB_dPc / params.delta) if q > 0.0 else 0.0
+        dG_dPs += (params.sigma - a) * dq_dPs
+        dG_dPc += -da_dPc * q + (params.sigma - a) * dq_dPc
+        dH_dPs_prod += dq_dPs
+        dH_dPc_prod += dq_dPc
+
+    dH_dPs = dH_dPs_prod + m + b_d
+    dH_dPc = dH_dPc_prod - m * cbam_coverage * cbam_sigma_foreign
+    if dG_dPc == 0.0 or dH_dPs == 0.0:
+        return 0.0
+    s_c = -dG_dPs / dG_dPc
+    s_s = -dH_dPc / dH_dPs
+    return s_c * s_s
 
 
 def _demand_curve(spec: dict[str, Any]) -> DemandCurve:
@@ -197,6 +303,38 @@ def _solve_one_market(market: CarbonMarket) -> dict[str, Any]:
 
     result = solve_product_equilibrium(domestic_supply, carbon_price, demand, imports)
     price_steel = float(result["price"])
+
+    # R37 (D3 adaptation, spec §7): the ACTUAL steel↔carbon joint loop gain
+    # g = s_c·s_s from the linearised 2×2 clearing Jacobian at this operating
+    # point. The shared-agent structural coupling has no external φ, so R37's
+    # conservative ĝ=Π|φ| does not apply; |g|>=1 warns LOUDLY (never silently),
+    # else DEBUG only. Evaluated per solve; harmless (no warning) for a
+    # standalone product market whose sibling carbon leg is absent.
+    loop_gain = product_scc_loop_gain(
+        list(params_by_name.values()),
+        b_d=demand.b_d,
+        m=imports.m,
+        price_steel=price_steel,
+        price_carbon=carbon_price,
+        cbam_coverage=imports.coverage if imports.cbam_enabled else 0.0,
+        cbam_sigma_foreign=imports.sigma_foreign if imports.cbam_enabled else 0.0,
+    )
+    if abs(loop_gain) >= _LOOP_GAIN_WARN_THRESHOLD:
+        logger.warning(
+            "product market %r year %r: steel<->carbon joint loop gain |g|=%.4g >= 1 "
+            "(R37, spec §7) — damped Gauss-Seidel may not contract; check "
+            "demand elasticity / cap tightness / emission intensity.",
+            market.scenario_name,
+            market.year,
+            loop_gain,
+        )
+    else:
+        logger.debug(
+            "product market %r year %r: joint loop gain g=%.4g < 1 (R37 silent)",
+            market.scenario_name,
+            market.year,
+            loop_gain,
+        )
 
     if not result["converged"]:
         logger.warning(

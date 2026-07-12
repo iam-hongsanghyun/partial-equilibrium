@@ -513,6 +513,20 @@ def _rule_r37_undamped_cyclic_hazard(
     carrier), falling back to the D2-3 interim hint on the intra-SCC
     ``market_link`` node params; absent both ⇒ the damped default (0.5) ⇒ silent.
 
+    R37 D3 ADAPTATION (docs/multi-commodity-spec.md §7). A cyclic SCC containing a
+    PRODUCT market is a shared-agent STRUCTURAL coupling with no external link
+    coefficient ``φ`` and a steel-side response ``s_s`` not bounded by 1, so the
+    conservative ``ĝ = Π|φ|`` device does NOT apply. Its contraction is governed
+    instead by the ACTUAL loop gain ``g = s_c·s_s`` from the linearised 2×2
+    clearing Jacobian, which reads the producer FOC slopes plus the demand/import
+    slopes — quantities this stdlib-only graph tier cannot see, and which live
+    only in the product body. That check therefore runs at RUNTIME
+    (``pe.features.product_market.solver.product_scc_loop_gain``, WARN iff
+    |g|≥1), where the FOC slopes exist; the graph composer carries no product
+    node yet (D3-7), so this rule stays byte-identical for the carbon-only
+    (non-product) cyclic SCCs it CAN see — the "existing D1/D2 behaviour
+    unchanged" requirement.
+
     Args:
         graph: The drawn block graph.
         edges: The valid cross-market link edges (from :func:`_rule_r34_link_wellformed`).

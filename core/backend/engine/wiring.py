@@ -294,10 +294,19 @@ def link_channels() -> dict[str, LinkChannelFactory]:
         two v1 channels.
     """
     from ..features.market_links.channels import InvestBreakEvenChannel, MacCostChannel
+    from ..features.product_market.channels import (
+        CarbonInputPriceChannel,
+        OutputRefPriceChannel,
+    )
 
     LINK_CHANNELS: dict[str, LinkChannelFactory] = {
         "mac_cost": MacCostChannel,
         "invest_break_even": InvestBreakEvenChannel,
+        # D3-4 steel↔carbon shared-agent coupling (docs/multi-commodity-spec.md §7):
+        # both STAMP the sibling PRICE onto the shared producer (price-driven, no
+        # quantity threaded — the joint engine stays byte-identical).
+        "carbon_input_price": CarbonInputPriceChannel,
+        "output_ref_price": OutputRefPriceChannel,
     }
     return LINK_CHANNELS
 

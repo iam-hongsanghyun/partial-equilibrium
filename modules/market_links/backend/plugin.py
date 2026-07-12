@@ -31,9 +31,17 @@ __all__ = [
     "validate_links",
 ]
 
-# spec §2b: v1 ships exactly these two channels, no default (a defaulted
-# functional form/channel is an economic constant hiding in a fallback).
-ALLOWED_LINK_CHANNELS: frozenset[str] = frozenset({"mac_cost", "invest_break_even"})
+# spec §2b: v1 shipped exactly ``mac_cost``/``invest_break_even`` (D1). D3-4 adds
+# the two steel↔carbon shared-agent coupling channels
+# (``carbon_input_price``/``output_ref_price``, docs/multi-commodity-spec.md §7):
+# they stamp the sibling PRICE onto the shared producer (not a MAC shift, not a
+# quantity). No default (a defaulted channel is an economic constant hiding in a
+# fallback). Golden-inert: no existing config uses the two new keys, so
+# ``validate_links`` (which only rejects UNKNOWN channels) is byte-identical for
+# every committed scenario.
+ALLOWED_LINK_CHANNELS: frozenset[str] = frozenset(
+    {"mac_cost", "invest_break_even", "carbon_input_price", "output_ref_price"}
+)
 
 # spec §6: REQUIRED, no default (from_market/to_market endpoint spelling is
 # the architect's choice per spec §7 "Schema names").
