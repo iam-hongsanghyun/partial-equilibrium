@@ -1,18 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ReactFlow,
   ReactFlowProvider,
-  Background,
-  Controls,
   addEdge,
   useNodesState,
   useEdgesState,
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { BlockNode } from "./BlockNode.jsx";
-import { Palette } from "./Palette.jsx";
-import { ParamPanel } from "./ParamPanel.jsx";
+import { ModelGraph } from "./ModelGraph.jsx";
 import {
   fetchBlockCatalogue,
   fetchTemplates,
@@ -30,6 +25,7 @@ import {
   serializeGraph,
   deserializeGraph,
 } from "./graphUtils.js";
+import { autoLayout } from "./autoLayout.js";
 import { AnalysisView } from "../components/AppViews.jsx";
 import { buildDraftResult } from "../components/AppShared.jsx";
 import {
@@ -41,8 +37,6 @@ import {
   JointConvergenceCard,
 } from "../components/MultiMarket.jsx";
 import { SectorInteraction } from "../components/SectorInteraction.jsx";
-
-const NODE_TYPES = { blockNode: BlockNode };
 
 function downloadJson(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -79,7 +73,6 @@ function ComposerCanvas() {
   const [runSelPart, setRunSelPart] = useState(null);
   const [runStacked, setRunStacked] = useState(true);
 
-  const wrapperRef = useRef(null);
   const { screenToFlowPosition, getViewport, setCenter } = useReactFlow();
 
   useEffect(() => {
@@ -176,6 +169,16 @@ function ComposerCanvas() {
     () => serializeGraph({ nodes, edges, viewport: getViewport() }),
     [nodes, edges, getViewport]
   );
+
+  const handleTidy = useCallback(() => {
+    setNodes((current) => {
+      const layout = autoLayout(
+        current.map((node) => ({ id: node.id, category: node.data?.category, order: node.data?.params?.order })),
+        edges.map((edge) => ({ source: edge.source, target: edge.target }))
+      );
+      return current.map((node) => (layout[node.id] ? { ...node, position: layout[node.id] } : node));
+    });
+  }, [edges, setNodes]);
 
   const handleValidate = useCallback(async () => {
     setBusy("validate");
@@ -380,6 +383,9 @@ function ComposerCanvas() {
           <button className="ghost-btn" disabled={!selectedTemplateId || busy === "template"} onClick={handleLoadTemplate}>
             Load example
           </button>
+          <button className="ghost-btn" disabled={!nodes.length} onClick={handleTidy}>
+            Tidy layout
+          </button>
           <button className="ghost-btn" disabled={!nodes.length || busy === "validate"} onClick={handleValidate}>
             Validate
           </button>
@@ -419,37 +425,24 @@ function ComposerCanvas() {
       )}
       <JointNonConvergenceBanner problems={jointProblems} />
 
-      <div className="composer-layout">
-        <Palette blocks={catalogue} />
-        <div className="composer-canvas-wrap" ref={wrapperRef}>
-          <ReactFlow
-            nodes={displayNodes}
-            edges={displayEdges}
-            nodeTypes={NODE_TYPES}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            isValidConnection={isValidConnection}
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            onSelectionChange={({ nodes: selectedNodes }) => setSelectedNodeId(selectedNodes[0]?.id || null)}
-            fitView
-            fitViewOptions={{ maxZoom: 1 }}
-            minZoom={0.2}
-            maxZoom={2}
-          >
-            <Background />
-            <Controls />
-          </ReactFlow>
-        </div>
-        <div className="composer-side">
-          <ParamPanel
-            node={selectedNode}
-            block={selectedBlock}
-            onChangeParam={updateSelectedNodeParam}
-            onRemoveNode={removeSelectedNode}
-          />
-          {validated && (
+      <ModelGraph
+        paletteBlocks={catalogue}
+        nodes={displayNodes}
+        edges={displayEdges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        isValidConnection={isValidConnection}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onSelectionChange={setSelectedNodeId}
+        selectedNode={selectedNode}
+        selectedBlock={selectedBlock}
+        onChangeParam={updateSelectedNodeParam}
+        onRemoveNode={removeSelectedNode}
+        allowKeyboardDelete
+        paramPanelChildren={
+          validated && (
             <div className="builder-card composer-issues-card">
               <div className="builder-card-head">
                 <div>
@@ -479,9 +472,9 @@ function ComposerCanvas() {
                 ))}
               </div>
             </div>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       {runPayload && activeRunScenario && activeRunYearObj && (
         <div className="composer-run-results">

@@ -148,7 +148,7 @@ function ParamPanel({ node, block, onChangeParam, onRemoveNode }) {
           <div className="eyebrow">{block.category}</div>
           <h4>{block.label}</h4>
         </div>
-        <button className="ghost-btn danger-btn" onClick={onRemoveNode}>Remove node</button>
+        {onRemoveNode && <button className="ghost-btn danger-btn" onClick={onRemoveNode}>Remove node</button>}
       </div>
       {block.doc && <p className="muted composer-param-doc">{block.doc}</p>}
       <div className="builder-form-grid">
