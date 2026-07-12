@@ -307,3 +307,42 @@ coupling (there is no external φ; the structural s_s=2.667 is not bounded by 1)
 D3, **R37 must evaluate the ACTUAL loop gain g=s_c·s_s from the linearized 2×2
 clearing Jacobian at the one-way seed** (a cheap evaluation), warning iff |g|≥1. For
 this anchor g=0.627 ⇒ no false-fire.
+
+### V-D3-5 lever rulings (2026-07-12)
+
+**#1 Investment trigger — keep θ/M separation; P\* is a derived DISPLAY.** The
+clean-tech config retains explicit θ (Marshallian break-even, required) + the
+M-inputs (σ, credibility q, r, y => M=β/(β−1)), reusing the Phase-1 AdoptionSpec —
+do NOT fold M into one "trigger" number (that discards the irreversibility-under-
+uncertainty economics). The engine REPORTS P\*=M·θ as a diagnostic;
+`trigger_multiple_override` (M=1) is the documented escape hatch. The D3-6 golden
+uses `trigger_mode="break_even"` (M≡1 => P\*=θ).
+
+**#2 Leakage counterfactual under adoption — fix at the UN-ADOPTED σ.** Headline
+leakage holds the P_c=0 counterfactual at the baseline (un-adopted) technology, so
+it measures the whole-policy effect INCLUDING the induced tech-switch (adoption
+lowers leakage by preserving domestic output). The post-adoption-σ' number is at
+most a secondary "conditional leakage" diagnostic.
+
+**#3 Cross-leg adoption — accepted with a REQUIRED leg-agreement assertion.** The
+two producer faces accumulate independent monotone floors that agree at the joint
+fixed point (monotone => no oscillation; unique adoption equilibrium; convergence
+forces leg-agreement). REQUIRED: a loud convergence-time assertion that the two
+legs' adoption floors AGREE in the reported equilibrium — a leg-inconsistent
+"converged" state (same firm σ on one face, σ' on the other) must never be reported
+(D2-5 CALL-2 ex-post consistency, checked against the converged vector; transient
+disagreement permitted). Recommended: decide adoption once per sweep on the carbon
+leg's SOLVED P_c and mirror to the steel leg (delivered-price doctrine).
+
+**#4 OBA clearing identity — CONFIRMED Σe = Cap + φ·Σq (corrects the earlier
+"Σe=Cap").** Output-based allocation issues φΣq free allowances ON TOP of the
+auctioned volume, so total allowances = Q_auction + φΣq and, with a binding price,
+Σe = Cap + φ·Σq. **OBA is NOT emissions-neutral — it RELAXES the cap** (floats up
+with output) in exchange for leakage protection. This corrects §3/§6's "clearing is
+purely Σe*=Cap" (true only for the no-OBA / fixed-cap case). **Key contrast: CBAM is
+cap-PRESERVING (Σe=Cap), OBA is cap-RELAXING (Σe>Cap).** In the anchor CBAM cuts
+leakage far more (0.353→0.111) while holding Σe=Cap; OBA barely dents leakage
+(0.353→0.326) AND inflates gross emissions +33% — CBAM dominates here (calibration-
+dependent ranking; the structural cap-preserving-vs-relaxing fact is general). Name
+the OBA design `output_based` in the golden; the single-market `oba_output_allocation.json`
+is the different `fixed_cap`/exogenous-output design (distributional, Σe=Cap).
