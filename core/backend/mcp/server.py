@@ -1,13 +1,13 @@
-"""FastMCP server: wires ``ets.mcp.tools`` functions up as MCP tools over stdio.
+"""FastMCP server: wires ``pe.mcp.tools`` functions up as MCP tools over stdio.
 
-Every tool in ``ets.mcp.tools`` is a stateless, plain function
+Every tool in ``pe.mcp.tools`` is a stateless, plain function
 (``Graph.from_dict -> ... -> Graph.to_dict``), so this module has nothing to
 do except register them and describe the composer conversation loop in
 ``instructions`` (the server-level playbook every MCP client surfaces to its
-model). See ``ets.mcp.tools``'s module docstring for the "graph document is
+model). See ``pe.mcp.tools``'s module docstring for the "graph document is
 the conversation state" design principle this whole server rests on.
 
-Run: ``python -m ets.mcp`` (stdio transport — the shape ``.mcp.json`` at the
+Run: ``python -m pe.mcp`` (stdio transport — the shape ``.mcp.json`` at the
 repo root registers for Claude Code/Desktop).
 """
 
@@ -17,7 +17,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import tools
 
-SERVER_NAME = "ets-composer"
+SERVER_NAME = "pe-composer"
 
 INSTRUCTIONS = """\
 You help a user compose an ETS (emissions-trading-system) scenario model by \
@@ -84,7 +84,7 @@ mcp = build_server()
 
 
 def main() -> None:
-    """Entry point for ``python -m ets.mcp`` — serve over stdio."""
+    """Entry point for ``python -m pe.mcp`` — serve over stdio."""
     mcp.run(transport="stdio")
 
 

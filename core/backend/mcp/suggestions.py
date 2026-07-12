@@ -3,16 +3,16 @@
 Source of truth: ``docs/blocks-composition-rules.md`` §4 (the validator rule
 list, R1-R33) plus ``docs/platform-spec-d0-d1.md`` §3/§7 (R34-R36, the D1-4
 market-link rules), and the synthetic ``"R-unconnected"`` warning
-``ets.blocks.validate`` also emits. Every entry here is deliberately
+``pe.blocks.validate`` also emits. Every entry here is deliberately
 generic advice about *what the fix is*, phrased as a question the AI can put
 to the user — the specific numbers/node ids of any one violation are already
-in the issue's own ``message`` (:class:`~ets.blocks.validate.ValidationIssue`);
+in the issue's own ``message`` (:class:`~pe.blocks.validate.ValidationIssue`);
 this table only supplies the "so what do I do about it" half, so ``check()``
 never has to fabricate remediation advice on the fly.
 
 R10 is deliberately absent: F1 (``docs/blocks-composition-rules.md`` §0) was
 fixed, so MSR + CCR together is now a VALID combination and
-``validate_graph`` never emits an R10 issue (see ``ets.blocks.validate``'s
+``validate_graph`` never emits an R10 issue (see ``pe.blocks.validate``'s
 module docstring) — there is nothing to suggest.
 """
 
@@ -225,7 +225,7 @@ def next_steps_for(
     """Build ``check()``'s ``next_steps``: one actionable entry per matched issue.
 
     Args:
-        issues: Every issue from ``ets.blocks.validate_graph``.
+        issues: Every issue from ``pe.blocks.validate_graph``.
         levels: Which issue levels to generate a next-step for. Defaults to
             ERROR only — a graph with only warnings already runs, so it
             doesn't need coaxing before ``run_model``. Pass

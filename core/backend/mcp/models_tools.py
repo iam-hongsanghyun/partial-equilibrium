@@ -1,6 +1,6 @@
 """Stateless tool implementations behind the MCP models (governor) server.
 
-Role split from ``ets.mcp.tools`` (the composer): the composer AUTHORS
+Role split from ``pe.mcp.tools`` (the composer): the composer AUTHORS
 models — it holds a conversational block graph and mutates it (``add_block``,
 ``set_params``, ...). This module OPERATES the already-configured model
 registry — the bundled examples under ``examples/`` and every model saved to
@@ -14,11 +14,11 @@ entry.
 
 ``list_models`` itself needs no governor-specific behaviour — inspecting the
 registry is identical work regardless of which server asks — so it is
-re-exported from ``ets.mcp.tools`` rather than reimplemented (see the
+re-exported from ``pe.mcp.tools`` rather than reimplemented (see the
 ``as list_models`` import below); every other tool here is new.
 
-Dependency law: same as any T5 app — this module may import ``ets.blocks``,
-``ets.model_store``, ``ets.engine``, ``ets.analysis``, and stdlib.
+Dependency law: same as any T5 app — this module may import ``pe.blocks``,
+``pe.model_store``, ``pe.engine``, ``pe.analysis``, and stdlib.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ def describe_model(model_id: str) -> dict[str, Any]:
             ``list_models``).
 
     Returns:
-        See ``ets.mcp.compact.compact_model_description``.
+        See ``pe.mcp.compact.compact_model_description``.
 
     Raises:
         ModelStoreError: ``model_id`` matches no known model.
@@ -74,7 +74,7 @@ def describe_model(model_id: str) -> dict[str, Any]:
 def run_model(model_id: str, scenario: str | None = None) -> dict[str, Any]:
     """Resolve a registered model's config and run it, compact summary out.
 
-    The governor's counterpart to ``ets.mcp.tools.run_model``: that tool
+    The governor's counterpart to ``pe.mcp.tools.run_model``: that tool
     runs an in-progress composer *graph*; this one runs an already-saved
     *model* by id, with no graph document required.
 
@@ -85,7 +85,7 @@ def run_model(model_id: str, scenario: str | None = None) -> dict[str, Any]:
     Returns:
         ``{"ok": True, "model_id", "scenarios": {...}}`` (plus a top-level
         ``"flow"`` key when non-default, D0-R2) — see
-        ``ets.mcp.compact.compact_run_summary`` for the per-year shape.
+        ``pe.mcp.compact.compact_run_summary`` for the per-year shape.
 
     Raises:
         ModelStoreError: ``model_id`` matches no known model.
@@ -103,7 +103,7 @@ def run_model(model_id: str, scenario: str | None = None) -> dict[str, Any]:
 # ── 4. compare_models ───────────────────────────────────────────────────────
 
 # Protocol-payload cap, not an economic/model parameter — same rationale as
-# ets.mcp.compact's _MAX_YEARS_PER_SCENARIO (see ets.model_store's module
+# pe.mcp.compact's _MAX_YEARS_PER_SCENARIO (see pe.model_store's module
 # docstring for why caps of this kind are colocated as module constants
 # rather than routed through a .env loader).
 _MAX_COMPARE_MODELS = 4
@@ -184,7 +184,7 @@ def compare_models(model_ids: list[str], scenario: str | None = None) -> dict[st
         "years": [{"year", <model_id>: {price, auction_sold,
         total_abatement, bank if present, ...}, ...}, ...], "summary":
         {"price_delta_min", "price_delta_max", "note"}}``. ``years`` is
-        sorted chronologically (``ets.mcp.compact.sort_year_labels``); a
+        sorted chronologically (``pe.mcp.compact.sort_year_labels``); a
         model missing a given year (mismatched horizons) simply has no key
         for that year's row rather than a fabricated value. ``model_ids``
         preserves the caller's input order everywhere (deterministic).
@@ -238,11 +238,11 @@ _MAX_SWEEP_VALUES = 8
 def sweep_model(model_id: str, parameter_path: str, values: list[Any]) -> dict[str, Any]:
     """Sweep one dotted config path on a registered model, headline results only.
 
-    Thin wrapper over ``ets.analysis.batch.run_batch`` for exactly one sweep
+    Thin wrapper over ``pe.analysis.batch.run_batch`` for exactly one sweep
     axis: resolves ``model_id`` to its config, runs every value in
     ``values`` through ``run_batch``, and compacts each run down to its
     final-year price and cumulative abatement (see
-    ``ets.mcp.compact.compact_sweep_summary``) instead of every year of
+    ``pe.mcp.compact.compact_sweep_summary``) instead of every year of
     every run.
 
     Args:
@@ -286,7 +286,7 @@ def rename_model(model_id: str, new_name: str) -> dict[str, Any]:
     User registry entries only (ids starting with ``"user_"``) — bundled
     examples are immutable and raise a clear error rather than silently
     no-op'ing. This only changes a model's display name/id; use
-    ``ets-composer``'s ``save_model`` (on a graph loaded via
+    ``pe-composer``'s ``save_model`` (on a graph loaded via
     ``new_graph(template_id=...)``) to change what a model actually
     contains.
 
@@ -339,7 +339,7 @@ def model_manifest(model_id: str) -> dict[str, Any]:
         model_id: An example stem or registry ``"user_<slug>"`` id.
 
     Returns:
-        ``ets.blocks.derive_manifest``'s full output (``features``,
+        ``pe.blocks.derive_manifest``'s full output (``features``,
         ``blocks``, ``approach``, ``categories``, ``scenarios``) — more
         detail than ``describe_model``'s ``manifest``/``mechanisms``
         summary, for callers that want the raw per-scenario breakdown too.

@@ -3,22 +3,22 @@
 Design principle: **tools are stateless; the graph document is the
 conversation state.** Every mutating function here takes a graph JSON dict
 (the wire schema of ``docs/blocks-graph-plan.md`` §2 —
-:class:`~ets.blocks.graph.Graph`) and returns the updated graph plus fresh
+:class:`~pe.blocks.graph.Graph`) and returns the updated graph plus fresh
 validation issues; nothing is held server-side between calls. The calling AI
 assistant holds the graph dict across turns, passes it back into the next
 tool call, and narrates what changed — exactly the same shape
-``ets.web.api``'s ``/api/graph/*`` endpoints already use, so a graph built
+``pe.web.api``'s ``/api/graph/*`` endpoints already use, so a graph built
 through this server round-trips through the web composer (and vice versa)
 with no translation.
 
 These functions are plain, synchronous, and side-effect-free except for
-``save_model`` (registry file I/O, via ``ets.model_store``) — they are
-imported directly by ``ets.mcp.server`` (wrapped as MCP tools) and by
+``save_model`` (registry file I/O, via ``pe.model_store``) — they are
+imported directly by ``pe.mcp.server`` (wrapped as MCP tools) and by
 ``tests/apps/mcp/test_mcp_composer.py`` (exercised directly, no MCP
 transport involved).
 
 Dependency law: same as any T5 app — this module may import
-``ets.blocks``, ``ets.model_store``, ``ets.engine``, and stdlib.
+``pe.blocks``, ``pe.model_store``, ``pe.engine``, and stdlib.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def _minimal_skeleton() -> Graph:
 
 # ── 1. list_models ───────────────────────────────────────────────────────
 #
-# Shared with the governor server: ``ets.mcp.models_tools`` registers this
+# Shared with the governor server: ``pe.mcp.models_tools`` registers this
 # same function as its own ``list_models`` tool (see that module's docstring)
 # rather than re-implementing it — both servers list the identical registry.
 
@@ -409,7 +409,7 @@ def check(graph: dict[str, Any]) -> dict[str, Any]:
         is the raw ``validate_graph`` output (rule id, level, message, node/
         edge attribution). ``next_steps`` is derived from it: one
         ``{"rule", "node", "message", "suggestion"}`` per ERROR-level issue
-        whose rule has a mapped suggestion (``ets.mcp.suggestions``) — a
+        whose rule has a mapped suggestion (``pe.mcp.suggestions``) — a
         plain-language, typically yes/no-phrased fix the AI should ask the
         user about before applying, never apply silently.
     """
@@ -437,7 +437,7 @@ def run_model(graph: dict[str, Any], scenario: str | None = None) -> dict[str, A
     Returns:
         ``{"ok": True, "scenarios": {name: {"years": [...], "total_years",
         "truncated"}}}`` (plus a top-level ``"flow"`` key when non-default,
-        D0-R2) — see ``ets.mcp.compact.compact_run_summary`` for exactly
+        D0-R2) — see ``pe.mcp.compact.compact_run_summary`` for exactly
         which columns each year row carries. Never a raw DataFrame, and
         never more than 12 years per scenario (older years are dropped,
         with ``"truncated": true`` marking it).

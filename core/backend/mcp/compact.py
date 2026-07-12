@@ -1,6 +1,6 @@
 """Compact result/manifest shapes shared by both MCP servers (composer + models).
 
-``ets.engine.run_simulation_from_config`` returns full pandas DataFrames —
+``pe.engine.run_simulation_from_config`` returns full pandas DataFrames —
 one row per scenario-year, with a ``f"{participant} <metric>"`` column for
 *every* participant in the model — far too wide to hand an AI assistant
 inline. This module keeps only the handful of scenario-level columns a
@@ -8,14 +8,14 @@ conversational "how did the model do" answer needs, and caps how many years
 of one scenario it shows, so a run's output stays a small, bounded size
 regardless of how many participants or years the model has.
 
-Used by both servers: ``ets.mcp.tools`` (the composer — ``run_model`` on an
-in-progress graph) and ``ets.mcp.models_tools`` (the governor — ``run_model``/
+Used by both servers: ``pe.mcp.tools`` (the composer — ``run_model`` on an
+in-progress graph) and ``pe.mcp.models_tools`` (the governor — ``run_model``/
 ``describe_model``/``compare_models``/``sweep_model`` on an already-saved
 model id), so the compact shapes stay identical regardless of which server
 an AI assistant is talking to.
 
 Engineering caps below (``_MAX_YEARS_PER_SCENARIO``, ``_ROUND_DECIMALS``) are
-not economic/model parameters — see ``ets.model_store``'s module docstring
+not economic/model parameters — see ``pe.model_store``'s module docstring
 for why this repo colocates constants of this kind in code rather than a
 ``.env`` loader.
 """
@@ -246,8 +246,8 @@ def describe_model_entry(model_id: str, source: str, config: dict[str, Any]) -> 
     """One ``list_models()`` row: id/name/source/feature chips/description.
 
     The single place this "what is this model, at a glance" summary is
-    built — both ``ets.mcp.tools.list_models`` (the composer) and
-    ``ets.mcp.models_tools.describe_model`` (the governor) call this rather
+    built — both ``pe.mcp.tools.list_models`` (the composer) and
+    ``pe.mcp.models_tools.describe_model`` (the governor) call this rather
     than each deriving their own label/description text.
 
     Args:
@@ -386,7 +386,7 @@ def compact_model_description(model_id: str, source: str, config: dict[str, Any]
 
 
 def compact_sweep_summary(batch: dict[str, Any]) -> dict[str, Any]:
-    """Reduce ``ets.analysis.batch.run_batch``'s output to per-value headlines.
+    """Reduce ``pe.analysis.batch.run_batch``'s output to per-value headlines.
 
     Args:
         batch: ``run_batch``'s return value for a single-parameter sweep

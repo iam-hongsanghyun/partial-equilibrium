@@ -1,18 +1,18 @@
 """Two AI-guided ETS MCP (Model Context Protocol) servers: composer + models.
 
-A T5 app, same tier as ``ets.web``/``ets.cli`` (``tests/test_module_isolation.py``):
-both servers wire the same primitives ``ets.web``'s endpoints use
-(``ets.blocks``, ``ets.model_store``, ``ets.engine``, ``ets.analysis``) up as
+A T5 app, same tier as ``pe.web``/``pe.cli`` (``tests/test_module_isolation.py``):
+both servers wire the same primitives ``pe.web``'s endpoints use
+(``pe.blocks``, ``pe.model_store``, ``pe.engine``, ``pe.analysis``) up as
 MCP tools instead of HTTP routes, so an AI assistant can hold a conversation
 with a user over stdio.
 
 Role split between the two servers:
 
-* **ets-composer** (``server.py`` + ``tools.py``) AUTHORS models — it holds a
+* **pe-composer** (``server.py`` + ``tools.py``) AUTHORS models — it holds a
   conversational block graph (``new_graph``/``add_block``/``set_params``/
   ``check``) and lets the user build a scenario turn by turn, then
   ``save_model``s it to the shared registry.
-* **ets-models** (``models_server.py`` + ``models_tools.py``) OPERATES the
+* **pe-models** (``models_server.py`` + ``models_tools.py``) OPERATES the
   already-configured registry that produces — ``list_models``,
   ``describe_model``, ``run_model``, ``compare_models``, ``sweep_model``,
   ``rename_model``/``delete_model``, ``model_manifest``. It never edits a
@@ -34,9 +34,9 @@ Package layout:
 * ``server.py`` / ``models_server.py`` — the FastMCP servers that register
   each module's functions and hold the server-level ``instructions``
   playbook.
-* ``__main__.py`` — ``python -m ets.mcp`` entry point (composer, stdio
+* ``__main__.py`` — ``python -m pe.mcp`` entry point (composer, stdio
   transport). ``models/__main__.py`` is the analogous entry point for
-  ``python -m ets.mcp.models`` (the governor) — a small subpackage that
+  ``python -m pe.mcp.models`` (the governor) — a small subpackage that
   exists only to make that a valid module path, distinct from the flat
   ``models_server.py``/``models_tools.py`` it wires up (see that
   subpackage's docstring).

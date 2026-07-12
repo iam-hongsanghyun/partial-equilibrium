@@ -1,22 +1,22 @@
-"""FastMCP server: wires ``ets.mcp.models_tools`` up as MCP tools over stdio.
+"""FastMCP server: wires ``pe.mcp.models_tools`` up as MCP tools over stdio.
 
-The governance/operate-time counterpart to ``ets.mcp.server`` (the
+The governance/operate-time counterpart to ``pe.mcp.server`` (the
 composer). Role split (see ``INSTRUCTIONS`` below, and
-``ets.mcp.models_tools``'s module docstring): ``ets-composer`` AUTHORS
+``pe.mcp.models_tools``'s module docstring): ``pe-composer`` AUTHORS
 models — it holds a conversational block graph and mutates it
-(``add_block``/``set_params``/...); ``ets-models`` OPERATES the
+(``add_block``/``set_params``/...); ``pe-models`` OPERATES the
 already-configured model registry it produces — list, inspect, run,
 compare, sweep, and rename/delete registry entries. There is no
 add_block/set_params/new_graph equivalent here by design.
 
-Run: ``python -m ets.mcp.models`` (stdio transport — the shape ``.mcp.json``
+Run: ``python -m pe.mcp.models`` (stdio transport — the shape ``.mcp.json``
 at the repo root registers for Claude Code/Desktop, alongside
-``ets-composer``). See ``ets.mcp.models``'s ``__main__.py`` for why this
+``pe-composer``). See ``pe.mcp.models``'s ``__main__.py`` for why this
 server's entry point is a small subpackage distinct from the flat
 ``models_tools.py``/``models_server.py`` modules it wires up: keeping the
-implementation flat, directly under ``ets.mcp`` alongside ``tools.py``/
+implementation flat, directly under ``pe.mcp`` alongside ``tools.py``/
 ``server.py``, means both servers share one package's dependency law and
-``tests/test_module_isolation.py`` tier (T5, by the ``ets.mcp.*`` prefix)
+``tests/test_module_isolation.py`` tier (T5, by the ``pe.mcp.*`` prefix)
 with no extra classification rule needed.
 """
 
@@ -26,18 +26,18 @@ from mcp.server.fastmcp import FastMCP
 
 from . import models_tools
 
-SERVER_NAME = "ets-models"
+SERVER_NAME = "pe-models"
 
 INSTRUCTIONS = """\
 You operate the ETS (emissions-trading-system) model registry: the bundled \
 examples under examples/ and every model saved to the shared registry under \
-user-scenarios/ (the same registry ets-composer's save_model writes to, and \
+user-scenarios/ (the same registry pe-composer's save_model writes to, and \
 the web composer's "Save model" too).
 
 Role boundary: this server OPERATES already-configured models -- it never \
 edits a model's internals. There is no add_block/set_params/new_graph tool \
 here. If the user wants to change what a model contains (add a block, \
-tweak a parameter, wire something new), tell them to use the ets-composer \
+tweak a parameter, wire something new), tell them to use the pe-composer \
 server instead: new_graph(template_id=<model_id>) loads this model onto its \
 canvas there. This server only lists, inspects, runs, compares, sweeps, and \
 renames/deletes registry entries.
@@ -98,7 +98,7 @@ mcp = build_server()
 
 
 def main() -> None:
-    """Entry point for ``python -m ets.mcp.models`` — serve over stdio."""
+    """Entry point for ``python -m pe.mcp.models`` — serve over stdio."""
     mcp.run(transport="stdio")
 
 
