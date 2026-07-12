@@ -4,13 +4,16 @@
 //
 // This is the config->graph direction the Canvas needs at mount/rebuild. It is
 // deliberately DISPLAY-oriented, not a full round-trip decompiler: it emits the
-// data-entity graph the pe-shell canvas can edit — the market, its price-
-// formation node, its companies (participants), sectors and technology options
-// — and never a compile-faithful mechanism wiring. The Canvas never compiles
-// this graph back to config (the reverse direction is a TARGETED field update,
-// see CanvasView.jsx), so a missing optional mechanism node only affects what
-// is drawn, never config integrity — the backend `graph_from_config`
-// (blocks/decompile.py) remains the authority for a full graph.
+// EDITABLE data-entity graph the pe-shell canvas can edit — the market, its
+// price-formation node, its companies (participants), sectors and technology
+// options — PLUS the DISPLAY-LOCKED policy/mechanism nodes the config declares
+// (see mechanismNodes below), so the Canvas shows the FULL model for context,
+// not just the data entities. The Canvas never compiles this graph back to
+// config (the reverse direction is a TARGETED field update, see CanvasView.jsx),
+// so a mechanism node only affects what is drawn, never config integrity — the
+// backend `graph_from_config` (blocks/decompile.py) remains the authority for a
+// full graph, and mechanismNodes deliberately mirrors its structural-block
+// synthesis (config-driven: a node appears IFF the mechanism is actually set).
 //
 // Node ids mirror decompile.py's scheme (`market0`, `market0_pf`,
 // `market0_p<i>`), and `peModelExpand.expandModelGraph` then materialises
@@ -48,6 +51,105 @@ function yearGrid(years) {
   return (years || []).map(({ participants, ...rest }) => rest);
 }
 
+// Mirror of decompile.py's `_equals_default`: arrays compare element-wise, every
+// other value by strict identity.
+function valuesEqual(value, other) {
+  if (Array.isArray(value) && Array.isArray(other)) {
+    if (value.length !== other.length) return false;
+    return value.every((item, index) => item === other[index]);
+  }
+  return value === other;
+}
+
+// The catalogue default for a block's config field (params are keyed by
+// ParamSpec.name; config_key carries the config field name — see peModelExpand).
+function paramDefault(block, configKey) {
+  const spec = (block?.params || []).find((param) => (param.config_key ?? param.name) === configKey);
+  return spec ? spec.default : undefined;
+}
+
+// A year-scope mechanism is ACTIVE when any market year deviates from the
+// block param's default for any of its config keys (decompile.py's `_year_field`
+// / `_collapse` "reads like what a human actually drew" rule, minus the
+// per-year collapse the display node does not need).
+function yearScopeActive(scenario, block, configKeys) {
+  const years = scenario.years || [];
+  return configKeys.some((key) => {
+    const def = paramDefault(block, key);
+    return years.some((year) => {
+      const value = year[key] === undefined ? def : year[key];
+      return !valuesEqual(value, def);
+    });
+  });
+}
+
+// DISPLAY-LOCKED policy/mechanism nodes for ONE scenario, mirroring the
+// structural-block synthesis in decompile.py's `_decompile_market_body`
+// (node ids, block ids and market ports all match its scheme). CONFIG-DRIVEN:
+// a node appears IFF the config actually sets that mechanism — `msr_enabled`, a
+// non-default year value, a non-empty trajectory, a non-zero reference price —
+// so a bare model draws none. These nodes are VIEW-ONLY on the Canvas: their
+// ids never match parseNodeTarget's data-entity patterns, so the Canvas never
+// persists an edit to them and never offers a Remove (the module structure is
+// locked; the user edits mechanisms on the Model tab). OBA owns no config keys
+// (never synthesised, matching decompile), and banking is drawn as the price-
+// formation node already (model_approach -> rubin_schennach_banking), so neither
+// gets a separate mechanism node here.
+function mechanismNodes(scenario, catalogue) {
+  const nodes = [];
+  const edges = [];
+
+  const addPolicy = (nodeSuffix, blockId) => {
+    if (!blockById(catalogue, blockId)) return;
+    const id = `${MARKET_ID}_${nodeSuffix}`;
+    nodes.push({ id, block: blockId, params: {} });
+    edges.push({ source: id, sourcePort: "policy", target: MARKET_ID, targetPort: "policies" });
+  };
+
+  // Flag-gated scenario-scope mechanisms (msr/ccr/investment).
+  if (scenario.msr_enabled) {
+    const mode = scenario.msr_mode ?? "bank_threshold";
+    addPolicy("msr", mode === "bank_threshold" ? "msr_bank_threshold" : "kmsr_decree");
+  }
+  if (scenario.ccr_enabled) addPolicy("ccr", "ccr");
+  if (scenario.investment_feedback_enabled) addPolicy("investment", "endogenous_investment");
+
+  // Year-scope price-control / policy blocks (active on any deviating year).
+  const yearBlocks = [
+    { suffix: "floor", blockId: "price_floor", keys: ["price_lower_bound"], trajectory: "price_floor_trajectory" },
+    { suffix: "ceiling", blockId: "price_ceiling", keys: ["price_upper_bound"], trajectory: "price_ceiling_trajectory" },
+    { suffix: "reserve", blockId: "auction_reserve", keys: ["auction_reserve_price", "minimum_bid_coverage", "unsold_treatment"] },
+    { suffix: "cancel", blockId: "cancellation", keys: ["cancelled_allowances"] },
+    { suffix: "cbam", blockId: "cbam", keys: ["eua_price", "eua_prices", "eua_price_ensemble"] },
+    { suffix: "hoard", blockId: "hoarding", keys: ["hoarding_inflow"] },
+  ];
+  yearBlocks.forEach(({ suffix, blockId, keys, trajectory }) => {
+    const block = blockById(catalogue, blockId);
+    if (!block) return;
+    const active = yearScopeActive(scenario, block, keys) || (trajectory && scenario[trajectory]);
+    if (active) addPolicy(suffix, blockId);
+  });
+
+  // Scenario-scope trajectory / value policy blocks.
+  if (scenario.cap_trajectory) addPolicy("cap", "cap_path");
+  if (scenario.free_allocation_trajectories) addPolicy("falloc", "free_allocation_phaseout");
+
+  // Expectations (its own port) and the price-elastic baseline (its own port).
+  const expBlock = blockById(catalogue, "expectations");
+  if (expBlock && yearScopeActive(scenario, expBlock, ["expectation_rule", "manual_expected_price"])) {
+    const id = `${MARKET_ID}_exp`;
+    nodes.push({ id, block: "expectations", params: {} });
+    edges.push({ source: id, sourcePort: "expectations", target: MARKET_ID, targetPort: "expectations" });
+  }
+  if (scenario.reference_carbon_price && blockById(catalogue, "price_elastic_baseline")) {
+    const id = `${MARKET_ID}_baseline`;
+    nodes.push({ id, block: "price_elastic_baseline", params: {} });
+    edges.push({ source: id, sourcePort: "baseline", target: MARKET_ID, targetPort: "baseline" });
+  }
+
+  return { nodes, edges };
+}
+
 // Build the §2 wire document for ONE scenario, using `displayYear`'s
 // participants as the model's company structure. `sectors` and each
 // participant's `technology_options` stay as opaque list params here —
@@ -73,6 +175,12 @@ function graphFromScenario(scenario, catalogue, displayYear) {
     nodes.push({ id, block: "participant", params: { ...participant, order: index } });
     edges.push({ source: id, sourcePort: "compliance", target: MARKET_ID, targetPort: "participants" });
   });
+
+  // Draw the config's DISPLAY-LOCKED policy/mechanism blocks (view-only) so the
+  // Canvas shows the full model, not just its data entities.
+  const mechanism = mechanismNodes(scenario, catalogue);
+  nodes.push(...mechanism.nodes);
+  edges.push(...mechanism.edges);
 
   return { version: 1, nodes, edges, meta: {} };
 }

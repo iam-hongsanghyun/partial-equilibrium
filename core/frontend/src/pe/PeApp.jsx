@@ -76,7 +76,7 @@ function ModelGroup({ eyebrow, title, description, templates, manifests, onSelec
   );
 }
 
-function SessionGroup({ sessions, onSelect }) {
+function SessionGroup({ sessions, onSelect, onRename, onDelete }) {
   if (!sessions.length) return null;
   return (
     <section className="panel">
@@ -89,22 +89,29 @@ function SessionGroup({ sessions, onSelect }) {
       </div>
       <div className="builder-list">
         {sessions.map((session) => (
-          <button
-            key={session.id}
-            type="button"
-            className="builder-list-item"
-            onClick={() => onSelect(session)}
-          >
-            <span>{session.name}</span>
-            <span className="builder-item-meta">Session</span>
-          </button>
+          // A wrapper grid (reusing .builder-list' gap) so the open button and
+          // its rename/delete actions stack without a nested <button>.
+          <div key={session.id} className="builder-list">
+            <button
+              type="button"
+              className="builder-list-item"
+              onClick={() => onSelect(session)}
+            >
+              <span>{session.name}</span>
+              <span className="builder-item-meta">Session</span>
+            </button>
+            <div className="editor-actions">
+              <button type="button" className="ghost-btn" onClick={() => onRename(session)}>Rename</button>
+              <button type="button" className="ghost-btn danger-btn" onClick={() => onDelete(session)}>Delete</button>
+            </div>
+          </div>
         ))}
       </div>
     </section>
   );
 }
 
-function ModelLanding({ templates, manifests, sessions, status, error, onDismissError, onSelect, onSelectSession }) {
+function ModelLanding({ templates, manifests, sessions, status, error, onDismissError, onSelect, onSelectSession, onRenameSession, onDeleteSession }) {
   const examples = templates.filter((template) => template.source === "example");
   const userModels = templates.filter((template) => template.source === "user");
   const other = templates.filter((template) => template.source !== "example" && template.source !== "user");
@@ -137,7 +144,7 @@ function ModelLanding({ templates, manifests, sessions, status, error, onDismiss
             <p className="lede">Select a model — the interface loads only that model's modules. Every model opens with only the mechanisms it actually uses; no unrelated MSR, CCR, CBAM, sector, or OBA sections.</p>
           </div>
         </section>
-        <SessionGroup sessions={sessions} onSelect={onSelectSession} />
+        <SessionGroup sessions={sessions} onSelect={onSelectSession} onRename={onRenameSession} onDelete={onDeleteSession} />
         <ModelGroup
           eyebrow="Start"
           title="Blank configuration"
@@ -337,6 +344,35 @@ export function PeApp() {
     }
   }
 
+  // Rename / delete a saved session in place (PATCH / DELETE /api/session/<id>),
+  // updating the local list so the strip reflects the change without a reload.
+  async function renameSession(session) {
+    const name = (window.prompt("Rename session to:", session.name) || "").trim();
+    if (!name || name === session.name) return;
+    try {
+      const response = await fetch(`/api/session/${encodeURIComponent(session.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok) throw new Error();
+      setSessions((prev) => prev.map((item) => (item.id === session.id ? { ...item, name } : item)));
+    } catch {
+      setError("This session could not be renamed.");
+    }
+  }
+
+  async function deleteSession(session) {
+    if (!window.confirm(`Delete session "${session.name}"? This cannot be undone.`)) return;
+    try {
+      const response = await fetch(`/api/session/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error();
+      setSessions((prev) => prev.filter((item) => item.id !== session.id));
+    } catch {
+      setError("This session could not be deleted.");
+    }
+  }
+
   function backToModels() {
     setSelected(null);
     setError(null);
@@ -353,6 +389,8 @@ export function PeApp() {
         onDismissError={() => setError(null)}
         onSelect={selectModel}
         onSelectSession={selectSession}
+        onRenameSession={renameSession}
+        onDeleteSession={deleteSession}
       />
     );
   }

@@ -215,6 +215,10 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
   const result = viewScenario && yearObj ? results?.[viewScenario.name]?.[String(yearObj.year)] : null;
   const displayResult = yearObj ? (result || buildDraftResult(yearObj)) : null;
   const hasEditedChanges = loadedConfigRef.current ? !configsEqual(config, loadedConfigRef.current) : false;
+  // "Update existing model" is only offered when initialTemplateId names a real
+  // model in the loaded library — a session restored without a source model
+  // carries a SESSION id there, which is not an updatable model target.
+  const canUpdateSourceModel = Boolean(initialTemplateId && templates.some((item) => item.id === initialTemplateId));
   const validationIssues = validateScenario(viewScenario, enabledFeatures);
   // Joint-equilibrium convergence diagnostics — present-guarded summary rows the
   // backend stamps only on cyclic-SCC markets; empty (inert) for a flat run.
@@ -320,6 +324,34 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
       setStatus("Session saved");
     } catch (error) {
       setStatus("Session save failed");
+    }
+  };
+
+  // Promote the current working config back into the MODEL library via POST
+  // /api/model (model_id present => UPDATE the source model, absent => NEW
+  // model). The source model id is initialTemplateId, but only when it names a
+  // real model in the loaded templates list — a session restored without a
+  // source model has an initialTemplateId that is a SESSION id, which must not
+  // be offered as an update target (see canUpdateSourceModel below).
+  const saveAsModel = async (asNew) => {
+    const suggested = activeScenario?.name || "Model";
+    const prompt = asNew ? "Save as a NEW model named:" : "Update the source model — save it as model named:";
+    const name = (window.prompt(prompt, suggested) || "").trim();
+    if (!name) return;
+    setStatus("Saving model…");
+    try {
+      const body = { name, config: configRef.current };
+      if (!asNew && canUpdateSourceModel) body.model_id = initialTemplateId;
+      const response = await fetch("/api/model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Model save failed.");
+      setStatus(asNew ? "Model saved" : "Model updated");
+    } catch (error) {
+      setStatus("Model save failed");
     }
   };
 
@@ -519,6 +551,8 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
             onLoadTemplate={loadTemplateIntoEditor}
             onSaveScenario={saveActiveScenarioToLibrary}
             onSaveSession={saveAsSession}
+            onSaveModel={saveAsModel}
+            canUpdateModel={canUpdateSourceModel}
             status={status}
             showGuideTab={showGuideTab}
             hideLoadTemplate={enabledFeatures != null}
@@ -545,6 +579,8 @@ export default function App({ enabledFeatures = null, manifest = null, initialTe
         onLoadTemplate={loadTemplateIntoEditor}
         onSaveScenario={saveActiveScenarioToLibrary}
         onSaveSession={saveAsSession}
+        onSaveModel={saveAsModel}
+        canUpdateModel={canUpdateSourceModel}
         status={status}
         showGuideTab={showGuideTab}
         hideLoadTemplate={enabledFeatures != null}

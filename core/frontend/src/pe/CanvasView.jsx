@@ -18,10 +18,15 @@ import { graphFromScenario, parseNodeTarget, sectorParamToKey } from "./peGraphF
 // mechanism config the Model forms own.
 //
 // The only ADD/REMOVE/EDIT surface is the three data-entity blocks (company,
-// sector, technology option) — the market / price-formation nodes are display-
-// locked (selectable, but their edits are not persisted), which is the module
-// lock. Structural mechanism blocks (MSR/CCR/floors/...) are not drawn here;
-// they stay editable on the Model tab (documented scope choice).
+// sector, technology option) — the market / price-formation nodes AND the
+// config-driven policy/mechanism nodes (MSR/CCR/floors/ceilings/CBAM/reserve/
+// expectations/baseline/..., drawn by peGraphFromConfig.mechanismNodes) are
+// display-locked (selectable, but their edits are not persisted and they carry
+// no Remove), which is the module lock: mechanisms are drawn here so the Canvas
+// shows the FULL model for context, but stay editable only on the Model tab.
+// A locked node's id never matches parseNodeTarget's data-entity patterns, so
+// onChangeParam writes nothing and selectedIsDataEntity gates the Remove off —
+// no per-kind branching needed, the same discipline covers every locked node.
 
 const DATA_ENTITY_BLOCKS = new Set(["participant", "sector", "technology_option"]);
 

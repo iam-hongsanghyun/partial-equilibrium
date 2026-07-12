@@ -636,6 +636,13 @@ function Header({
   // only in the pe.command shell (App passes it); the default shell leaves it
   // out, so the button never renders there.
   onSaveSession = null,
+  // Optional "promote the working config back into the MODEL library" action —
+  // onSaveModel(asNew) posts to /api/model (asNew=false => UPDATE the source
+  // model, asNew=true => NEW model). The "Update model" button shows only when
+  // a source model is known (canUpdateModel); "Save as new model" is always
+  // available when onSaveModel is passed.
+  onSaveModel = null,
+  canUpdateModel = false,
   // pe mode locks the shell to the model chosen on the welcome page — "Back
   // to models" (frontend/src/pe/PeApp.jsx's ModelToolbar) is the only way to
   // switch models, so the in-editor template splice control is hidden here.
@@ -689,6 +696,12 @@ function Header({
           </nav>
           {onSaveSession && (
             <button className="ghost-btn" onClick={onSaveSession}>Save as session</button>
+          )}
+          {onSaveModel && canUpdateModel && (
+            <button className="ghost-btn" onClick={() => onSaveModel(false)}>Update model</button>
+          )}
+          {onSaveModel && (
+            <button className="ghost-btn" onClick={() => onSaveModel(true)}>Save as new model</button>
           )}
         </div>
       </div>
